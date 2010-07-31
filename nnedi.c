@@ -60,11 +60,20 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     memcpy(test_weights, dll+0x240f8, sizeof(test_weights));
     memcpy(scale_weights, dll+0x244e8, sizeof(scale_weights));
 
-    for(int y=-2; y<height+3; y++) {
+    // L/R mirroring ends up with only 1 copy of the last column.
+    // T/B mirroring ends up with 2 copies of the last row.
+    // this is inconsistent, but matches the way nnedi3 does it. (just for testing)
+    for(int y=0; y<height; y++) {
         memcpy(tpix+y*2*tstride, src+av_clip(y,0,height-1)*sstride, width);
-        memset(tpix+y*2*tstride-5, tpix[y*2*tstride], 5);
-        memset(tpix+y*2*tstride+width, tpix[y*2*tstride+width-1], 6);
+        for(int x=1; x<=5; x++)
+            tpix[y*2*tstride-x] = tpix[y*2*tstride+x];
+        for(int x=1; x<=6; x++)
+            tpix[y*2*tstride+width-1+x] = tpix[y*2*tstride+width-1-x];
     }
+    for(int y=0; y<2; y++)
+        memcpy(tpix-(y+1)*2*tstride-5, tpix+y*2*tstride-5, twidth);
+    for(int y=0; y<3; y++)
+        memcpy(tpix+(height+y)*2*tstride-5, tpix+(height-1-y)*2*tstride-5, twidth);
     for(int y=0; y<height; y++) {
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
