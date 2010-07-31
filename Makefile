@@ -1,5 +1,5 @@
-CFLAGS=-O2 -g -Wall
-CXXFLAGS=$(CFLAGS)
+CFLAGS=-O2 -g -Wall -std=gnu99
+CXXFLAGS=-O2 -g -Wall
 LDFLAGS=-L/usr/x11r6/lib
 
 upscale: upscale.o nnedi.o nnedi3.dll
