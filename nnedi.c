@@ -74,7 +74,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, &mean);
             int t = test_net(test_weights, fbuf, ftmp);
             if(t) {
-                *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*3-pix[-tstride*3]-pix[tstride*3]+2)>>2);
+                *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
                 cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
                 float v = scale_net(48, 16, scale_weights, fbuf, ftmp, mean, scale);
