@@ -56,7 +56,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     void (*cast_pixels_12x4)(const uint8_t *src, int stride2, float *dst, float *mean) = dll+0x5000;
     void (*cast_pixels_general)(const uint8_t *src, int stride2, int width, int height, float *bias, float *scale, float *dst) = dll+0x5bf0;
     ALIGNED_16(float test_weights[252]);
-    ALIGNED_16(float scale_weights[10000/* ? */]);
+    ALIGNED_16(float scale_weights[49*32]);
     memcpy(test_weights, dll+0x240f8, sizeof(test_weights));
     memcpy(scale_weights, dll+0x244e8, sizeof(scale_weights));
 
