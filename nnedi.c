@@ -12,11 +12,33 @@ void *dll = NULL;
 static int test_net(const float *weights, const float *pix, float *tmp)
 {
     int ret;
-    asm("push %1 \n"
+    asm(
+        "push %1 \n"
         "call *%4 \n"
         "pop %1 \n"
-        :"=a"(ret), "+&d"(tmp)
-        :"c"(weights), "a"(pix), "r"(dll+0x4380)
+        :"=a"(ret), "+d"(tmp), "+c"(weights)
+        :"a"(pix), "r"(dll+0x4380)
+        :"memory"
+    );
+    return ret;
+}
+
+static float scale_net(int ninputs, int nneurons, const float *weights, const float *pix, float *tmp, float bias, float scale)
+{
+    static float ret; // static because otherwise we run out of regs
+    ret = 0;
+    asm(
+        "push %8 \n"
+        "sub  $8, %%esp \n"
+        "movss %5, 4(%%esp) \n"
+        "movss %4,  (%%esp) \n"
+        "push %3 \n"
+        "push %2 \n"
+        "call *%9 \n"
+        "add $20, %%esp \n"
+        // eax and edx are specified just as a clobber, not because it matters which variables go in them.
+        :"+m"(ret), "+c"(ninputs), "+a"(pix), "+d"(weights), "+x"(bias), "+x"(scale)
+        :"S"(nneurons), "D"(tmp), "i"(&ret), "r"(dll+0x1bf0)
         :"memory"
     );
     return ret;
@@ -31,9 +53,12 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     int tstride = (twidth+15)&~15;
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
-    void (*cast_pixels)(uint8_t *src, int stride2, float *dst, float *mean) = dll+0x5000;
+    void (*cast_pixels_12x4)(const uint8_t *src, int stride2, float *dst, float *mean) = dll+0x5000;
+    void (*cast_pixels_general)(const uint8_t *src, int stride2, int width, int height, float *bias, float *scale, float *dst) = dll+0x5bf0;
     ALIGNED_16(float test_weights[252]);
+    ALIGNED_16(float scale_weights[10000/* ? */]);
     memcpy(test_weights, dll+0x240f8, sizeof(test_weights));
+    memcpy(scale_weights, dll+0x244e8, sizeof(scale_weights));
 
     for(int y=-2; y<height+3; y++) {
         memcpy(tpix+y*2*tstride, src+av_clip(y,0,height-1)*sstride, width);
@@ -42,12 +67,21 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     }
     for(int y=0; y<height; y++) {
         for(int x=0; x<width; x++) {
+#if 0
             ALIGNED_16(float fbuf[48]);
             ALIGNED_16(float ftmp[36]); // actually size 12, but test_net fills it sparsely
             float mean;
-            cast_pixels(tpix+(y-1)*2*tstride+x-5, tstride, fbuf, &mean);
+            cast_pixels_12x4(tpix+(y-1)*2*tstride+x-5, tstride, fbuf, &mean);
             int t = test_net(test_weights, fbuf, ftmp);
             tpix[(y*2+1)*tstride+x] = t*255;
+#else
+            ALIGNED_16(float fbuf[48]);
+            ALIGNED_16(float ftmp[32]);
+            float mean, scale;
+            cast_pixels_general(tpix+(y-2)*2*tstride+x-3, tstride, 8, 6, &mean, &scale, fbuf);
+            float v = scale_net(48, 16, scale_weights, fbuf, ftmp, mean, scale);
+            tpix[(y*2+1)*tstride+x] = av_clip_uint8(v+.5f);
+#endif
         }
     }
     for(int y=0; y<height*2; y++)

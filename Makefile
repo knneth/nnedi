@@ -1,4 +1,4 @@
-CFLAGS=-O2 -g -Wall -std=gnu99
+CFLAGS=-O2 -g -Wall -std=gnu99 -msse
 CXXFLAGS=-O2 -g -Wall
 LDFLAGS=-L/usr/x11r6/lib
 
