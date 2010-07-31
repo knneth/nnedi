@@ -67,21 +67,19 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     }
     for(int y=0; y<height; y++) {
         for(int x=0; x<width; x++) {
-#if 0
+            uint8_t *pix = tpix+(y*2+1)*tstride+x;
             ALIGNED_16(float fbuf[48]);
-            ALIGNED_16(float ftmp[36]); // actually size 12, but test_net fills it sparsely
-            float mean;
-            cast_pixels_12x4(tpix+(y-1)*2*tstride+x-5, tstride, fbuf, &mean);
-            int t = test_net(test_weights, fbuf, ftmp);
-            tpix[(y*2+1)*tstride+x] = t*255;
-#else
-            ALIGNED_16(float fbuf[48]);
-            ALIGNED_16(float ftmp[32]);
+            ALIGNED_16(float ftmp[36]); // test uses 36, scale uses 32
             float mean, scale;
-            cast_pixels_general(tpix+(y-2)*2*tstride+x-3, tstride, 8, 6, &mean, &scale, fbuf);
-            float v = scale_net(48, 16, scale_weights, fbuf, ftmp, mean, scale);
-            tpix[(y*2+1)*tstride+x] = av_clip_uint8(v+.5f);
-#endif
+            cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, &mean);
+            int t = test_net(test_weights, fbuf, ftmp);
+            if(t) {
+                *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*3-pix[-tstride*3]-pix[tstride*3]+2)>>2);
+            } else {
+                cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
+                float v = scale_net(48, 16, scale_weights, fbuf, ftmp, mean, scale);
+                *pix = av_clip_uint8(v+.5f);
+            }
         }
     }
     for(int y=0; y<height*2; y++)
