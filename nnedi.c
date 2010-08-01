@@ -218,18 +218,17 @@ static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float 
     *mean = sum * (1/48.f);
     v4f biasv = splatps(*mean);
     for(int y=0; y<4; y++)
-        for(int x=0; x<12; x+=4, dst+=4) {
-            asm("movd %1, %%xmm0 \n"
-                "pshufb %2, %%xmm0 \n"
+        for(int x=0; x<12; x+=4, dst+=4)
+            asm("movd         %1, %%xmm0 \n"
+                "pshufb       %2, %%xmm0 \n"
                 "cvtdq2ps %%xmm0, %%xmm0 \n"
-                "subps %3, %%xmm0 \n"
-                "movaps %%xmm0, %0 \n"
+                "subps        %3, %%xmm0 \n"
+                "movaps   %%xmm0, %0 \n"
                 :"=m"(*(v4f*)dst)
                 :"m"(src[y*stride2*2+x]),
                  "x"(unpackbd_shuf), "x"(biasv)
                 :"xmm0"
             );
-        }
 }
 
 static void cast_pixels_general(const uint8_t *src, int stride2, int width, int height, float *mean, float *stddev, float *dst)
@@ -252,9 +251,21 @@ static void cast_pixels_general(const uint8_t *src, int stride2, int width, int 
         *stddev = 0;
         scale = 0;
     }
+    v4f biasv = splatps(bias);
+    v4f scalev = splatps(scale);
     for(int y=0; y<height; y++)
-        for(int x=0; x<width; x++)
-            *dst++ = (src[y*stride2*2+x] - bias) * scale;
+        for(int x=0; x<width; x+=4, dst+=4)
+            asm("movd         %1, %%xmm0 \n"
+                "pshufb       %2, %%xmm0 \n"
+                "cvtdq2ps %%xmm0, %%xmm0 \n"
+                "subps        %3, %%xmm0 \n"
+                "mulps        %4, %%xmm0 \n"
+                "movaps   %%xmm0, %0 \n"
+                :"=m"(*(v4f*)dst)
+                :"m"(src[y*stride2*2+x]),
+                 "x"(unpackbd_shuf), "x"(biasv), "x"(scalev)
+                :"xmm0"
+            );
 }
 
 static void munge_test_weights(float *dst, const float *src)
