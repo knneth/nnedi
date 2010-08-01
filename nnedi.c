@@ -7,6 +7,8 @@
 #include <bench.h>
 #include "nnedi.h"
 
+#define NNS 64
+
 typedef float __attribute__((vector_size(16))) v4f;
 typedef int   __attribute__((vector_size(16))) v4si;
 
@@ -161,8 +163,7 @@ static inline void softmax(float *x, int n)
 {
     v4f max = splatps(vec_max(x,n));
     for(int i=0; i<n; i+=4)
-        // constant factor could be merged into weights
-        *(v4f*)(x+i) = exp2ps((*(v4f*)(x+i) - max) * splatps(M_LOG2E));
+        *(v4f*)(x+i) = exp2ps(*(v4f*)(x+i) - max);
 }
 
 static inline float weighted_average(float *weights, float *x, int n)
@@ -258,11 +259,18 @@ static void cast_pixels_general(const uint8_t *src, int stride2, int width, int 
 
 static void munge_test_weights(float *dst, const float *src)
 {
-    int i;
-    for(i=0; i<48*4; i++)
-        *dst++ = *src++ * (1/127.5f);
-    for(; i<252; i++)
-        *dst++ = *src++;
+    memcpy(dst, src, 252*sizeof(float));
+    for(int i=0; i<48*4; i++)
+        dst[i] *= 1/127.5f;
+}
+
+static void munge_scale_weights(float *dst, const float *src)
+{
+    memcpy(dst, src, 49*2*NNS*sizeof(float));
+    for(int i=0; i<48*NNS; i++)
+        dst[i] *= M_LOG2E;
+    for(int i=96*NNS; i<97*NNS; i++)
+        dst[i] *= M_LOG2E;
 }
 
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
@@ -273,7 +281,9 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
     ALIGNED_16(float test_weights2[252]);
+    ALIGNED_16(float scale_weights2[49*2*NNS]);
     munge_test_weights(test_weights2, test_weights);
+    munge_scale_weights(scale_weights2, NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
 
     // L/R mirroring ends up with only 1 copy of the last column.
     // T/B mirroring ends up with 2 copies of the last row.
@@ -301,7 +311,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
                 cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &stddev, fbuf);
-                float v = scale_net(48, 64, scale_weights_8x6x64, fbuf)*stddev+mean;
+                float v = scale_net(48, NNS, scale_weights2, fbuf)*stddev+mean;
                 *pix = av_clip_uint8(v+.5f);
             }
         }
