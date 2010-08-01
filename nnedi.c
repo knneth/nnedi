@@ -404,7 +404,7 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
 #undef ROW
 }
 
-// FIXME cap scaling factors so that intermediate sums don't overflow.
+// FIXME cap scaling factors so that intermediate sums don't overflow; or allow 7fff if that works.
 static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
 {
     for(int j=0; j<4; j++, dsti+=48, src+=48) {
@@ -412,8 +412,9 @@ static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
         int sum = 0;
         for(int i=0; i<48; i++)
             max = fmaxf(max, fabsf(src[i]));
+        float scale = 0x3fff/max;
         for(int i=0; i<48; i++)
-            sum += dsti[i] = src[(i>>2)+(i&3)*12]*0x3fff/max; // FIXME 7fff, division
+            sum += dsti[i] = roundf(src[(i>>2)+(i&3)*12]*scale);
         dstf[j] = max/(0x3fff*127.5f);
         dstf[j+4] = sum*dstf[j];
     }
@@ -422,17 +423,18 @@ static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
 
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
 {
-    float scale[2*NNS];
+    float scales[2*NNS];
     for(int j=0; j<2*NNS; j++, dsti+=48, src+=48) {
         float max = 0;
         for(int i=0; i<48; i++)
             max = fmaxf(max, fabsf(src[i]));
+        float scale = 0x3fff/max;
         for(int i=0; i<48; i++)
-            dsti[i] = src[i]*0x3fff/max;
-        scale[j] = max/(0x3fff*16);
+            dsti[i] = roundf(src[i]*scale);
+        scales[j] = max/(0x3fff*16);
     }
     for(int j=0; j<2*NNS; j+=4) {
-        memcpy(dstf+j*2, scale+j, 4*sizeof(float));
+        memcpy(dstf+j*2, scales+j, 4*sizeof(float));
         memcpy(dstf+j*2+4, src+j, 4*sizeof(float));
         if(j<NNS)
             for(int i=0; i<8; i++)
