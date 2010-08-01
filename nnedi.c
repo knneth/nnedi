@@ -52,6 +52,39 @@ static void cast_pixels_general_c(const uint8_t *src, int stride2, int width, in
             *dst++ = (src[y*stride2*2+x] - bias) * scale;
 }
 
+static inline v4f splatps(float x)
+{
+    return (v4f){x,x,x,x};
+}
+
+static inline float haddps(v4f x)
+{
+    float ret, tmp;
+    asm("movhlps %2, %1 \n"
+        "addps   %2, %1 \n"
+        "pshuflw $14, %1, %0 \n"
+        "addss   %1, %0 \n"
+        :"=x"(ret), "=&x"(tmp)
+        :"x"(x)
+    );
+    return ret;
+}
+
+static inline v4f haddps_x2(v4f x0, v4f x1)
+{
+    v4f ret;
+    asm("movaps   %1, %0 \n"
+        "unpcklps %2, %1 \n"
+        "unpckhps %2, %0 \n"
+        "addps    %1, %0 \n"
+        "movhlps  %0, %1 \n"
+        "addps    %1, %0 \n"
+        :"=&x"(ret), "+&x"(x0)
+        :"x"(x1)
+    );
+    return ret;
+}
+
 static inline v4f haddps_x4(v4f x0, v4f x1, v4f x2, v4f x3)
 {
     v4f ret;
@@ -104,6 +137,26 @@ static inline v4f sigmoid_x4(v4f x)
     return x;
 }
 
+static inline void softmax(float *x, int n)
+{
+    float max = x[0];
+    for(int i=1; i<n; i++)
+        max = fmaxf(max, x[i]);
+    for(int i=0; i<n; i++)
+        x[i] = exp(x[i]-max);
+}
+
+static inline float weighted_average(float *weights, float *x, int n)
+{
+    v4f sum = splatps(0);
+    v4f dot = splatps(0);
+    for(int i=0; i<n; i+=4) {
+        sum += *(v4f*)(weights+i);
+        dot += *(v4f*)(weights+i) * *(v4f*)(x+i);
+    }
+    return haddps(dot)/haddps(sum);
+}
+
 static int test_net_c(const float *weights, const float *pix, float *unused)
 {
     ALIGNED_16(float tmp[8]);
@@ -122,6 +175,17 @@ static int test_net_c(const float *weights, const float *pix, float *unused)
         :"+r"(ret), "+x"(x), "=x"(y)
     );
     return ret;
+}
+
+static float scale_net_c(int ninputs, int nneurons, const float *weights, const float *pix, float *tmp, float bias, float scale)
+{
+    const float *biases = weights+ninputs*nneurons*2;
+    for(int i=0; i<nneurons*2; i+=4, weights+=ninputs*4)
+        *(v4f*)(tmp+i) = dotproduct_x4(weights, pix, ninputs, ninputs) + *(v4f*)(biases+i);
+    softmax(tmp, nneurons);
+    for(int i=nneurons; i<nneurons*2; i+=4)
+        *(v4f*)(tmp+i) = sigmoid_x4(*(v4f*)(tmp+i));
+    return bias+5*scale*weighted_average(tmp, tmp+nneurons, nneurons);
 }
 
 
@@ -205,7 +269,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
                 cast_pixels_general_c(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
-                float v = scale_net(48, 16, scale_weights, fbuf, ftmp, mean, scale);
+                float v = scale_net_c(48, 16, scale_weights, fbuf, ftmp, mean, scale);
                 *pix = av_clip_uint8(v+.5f);
             }
         }
