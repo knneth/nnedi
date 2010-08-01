@@ -16,6 +16,11 @@ static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
 static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
 static const v4si unpackbd_shuf = { 0xffffff00, 0xffffff01, 0xffffff02, 0xffffff03 };
 
+static inline v4si splatpi(int x)
+{
+    return (v4si){x,x,x,x};
+}
+
 static inline v4f splatps(float x)
 {
     return (v4f){x,x,x,x};
@@ -240,6 +245,7 @@ static void cast_pixels_12x4(const uint8_t *src, int stride, float *dst, float m
 
 static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *dst)
 {
+#if 0
     int sum = 0, sum2 = 0;
     for(int y=0; y<height; y++)
         for(int x=0; x<width; x++) {
@@ -247,6 +253,59 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
             sum += v;
             sum2 += v*v;
         }
+#else
+    int sum, sum2;
+    asm("pxor       %%xmm0, %%xmm0 \n"
+        "movq    (%2),      %%xmm1 \n"
+        "movq    (%2,%3),   %%xmm3 \n"
+        "movdqa     %%xmm1, %%xmm2 \n"
+        "punpcklqdq %%xmm3, %%xmm2 \n"
+        "punpcklbw  %%xmm0, %%xmm1 \n"
+        "punpcklbw  %%xmm0, %%xmm3 \n"
+        "pmaddwd    %%xmm1, %%xmm1 \n"
+        "pmaddwd    %%xmm3, %%xmm3 \n"
+        "psadbw     %%xmm0, %%xmm2 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+
+        "movq    (%2,%3,2), %%xmm3 \n"
+        "movq    (%4),      %%xmm5 \n"
+        "movdqa     %%xmm3, %%xmm4 \n"
+        "punpcklqdq %%xmm5, %%xmm4 \n"
+        "punpcklbw  %%xmm0, %%xmm3 \n"
+        "punpcklbw  %%xmm0, %%xmm5 \n"
+        "pmaddwd    %%xmm3, %%xmm3 \n"
+        "pmaddwd    %%xmm5, %%xmm5 \n"
+        "psadbw     %%xmm0, %%xmm4 \n"
+        "paddd      %%xmm5, %%xmm3 \n"
+        "paddd      %%xmm4, %%xmm2 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+
+        "movq    (%4,%3),   %%xmm3 \n"
+        "movq    (%4,%3,2), %%xmm5 \n"
+        "movdqa     %%xmm3, %%xmm4 \n"
+        "punpcklqdq %%xmm5, %%xmm4 \n"
+        "punpcklbw  %%xmm0, %%xmm3 \n"
+        "punpcklbw  %%xmm0, %%xmm5 \n"
+        "pmaddwd    %%xmm3, %%xmm3 \n"
+        "pmaddwd    %%xmm5, %%xmm5 \n"
+        "psadbw     %%xmm0, %%xmm4 \n"
+        "paddd      %%xmm5, %%xmm3 \n"
+        "paddd      %%xmm4, %%xmm2 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+
+        "movhlps    %%xmm2, %%xmm4 \n"
+        "movhlps    %%xmm1, %%xmm3 \n"
+        "paddd      %%xmm4, %%xmm2 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+        "pshuflw $14,%%xmm1, %%xmm3 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+        "movd       %%xmm2, %0 \n"
+        "movd       %%xmm1, %1 \n"
+        :"=r"(sum), "=r"(sum2)
+        :"r"(src), "r"(stride), "r"(src+stride*3)
+        :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
+    );
+#endif
     float norm = 1.f / (width*height);
     float bias = *mean = sum*norm;
     float var = sum2*norm - bias*bias;
