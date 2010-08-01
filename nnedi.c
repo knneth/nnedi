@@ -206,12 +206,13 @@ static inline float vec_max(float *x, int n)
 
 static inline v4f exp2ps(v4f x)
 {
-    // this might be excessively precise.
-    static const v4f ss_bias   = SPLATPS(3<<22);
-    static const v4f ss_1      = SPLATPS(1.0);
-    static const v4f ss_ln2    = SPLATPS(M_LN2);
-    static const v4f ss_0_5035 = SPLATPS(0.5035*M_LN2*M_LN2);
-    v4f t, u, v;
+    static const v4f bias = SPLATPS(3<<22);
+    // Taylor coefs are 1, 1*ln2, .5*ln2*ln2. But if I'm going to truncate the Taylor
+    // series and care only about [-.5,.5], these modified coefs are a better fit.
+    static const v4f c0 = SPLATPS(1.00035);
+    static const v4f c1 = SPLATPS(1.01173*M_LN2);
+    static const v4f c2 = SPLATPS(0.49401*M_LN2*M_LN2);
+    v4f t, u, v; // gcc pessimizes this if I remove the unused variable
     asm volatile (
         "movaps %0, %2 \n\t"
         "addps  %4, %0 \n\t"
@@ -227,7 +228,7 @@ static inline v4f exp2ps(v4f x)
         "addps  %2, %0 \n\t"
         "paddd  %3, %0 \n\t"
         :"+x"(x), "=x"(t), "=x"(u), "=x"(v)
-        :"m"(ss_bias), "m"(ss_1), "m"(ss_ln2), "m"(ss_0_5035)
+        :"m"(bias), "m"(c0), "m"(c1), "m"(c2)
     );
     return x;
 }
