@@ -7,15 +7,13 @@
 #include <bench.h>
 #include "nnedi.h"
 
-#define ALIGNED_16(x) __attribute__((aligned(16))) x
-
 typedef float __attribute__((vector_size(16))) v4f;
 typedef int   __attribute__((vector_size(16))) v4si;
 
 static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
 static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
 
-static void cast_pixels_12x4_c(const uint8_t *src, int stride2, float *dst, float *mean)
+static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float *mean)
 {
     int sum = 0;
     for(int y=0; y<4; y++)
@@ -27,7 +25,7 @@ static void cast_pixels_12x4_c(const uint8_t *src, int stride2, float *dst, floa
             *dst++ = (src[y*stride2*2+x] - bias) * (1/127.5f);
 }
 
-static void cast_pixels_general_c(const uint8_t *src, int stride2, int width, int height, float *mean, float *stddev, float *dst)
+static void cast_pixels_general(const uint8_t *src, int stride2, int width, int height, float *mean, float *stddev, float *dst)
 {
     int sum = 0, sum2 = 0;
     for(int y=0; y<height; y++)
@@ -108,7 +106,6 @@ static inline v4f haddps_x4(v4f x0, v4f x1, v4f x2, v4f x3)
 
 static inline v4f dotproduct_x4(const float *weights, const float *inputs, int n, int stride)
 {
-    // depends on the compiler to optimize away any unused accumulators when not x4
     v4f in = *(v4f*)inputs;
     v4f s0 = *(v4f*)weights * in;
     v4f s1 = *(v4f*)(weights+stride) * in;
@@ -157,7 +154,7 @@ static inline float weighted_average(float *weights, float *x, int n)
     return haddps(dot)/haddps(sum);
 }
 
-static int test_net_c(const float *weights, const float *pix, float *unused)
+static int test_net(const float *weights, const float *pix)
 {
     ALIGNED_16(float tmp[8]);
     *(v4f*)tmp = sigmoid_x4(dotproduct_x4(weights, pix, 48, 48) + *(v4f*)(weights+48*4));
@@ -177,7 +174,7 @@ static int test_net_c(const float *weights, const float *pix, float *unused)
     return ret;
 }
 
-static float scale_net_c(int ninputs, int nneurons, const float *weights, const float *pix, float *tmp, float bias, float scale)
+static float scale_net(int ninputs, int nneurons, const float *weights, const float *pix, float *tmp, float bias, float scale)
 {
     const float *biases = weights+ninputs*nneurons*2;
     for(int i=0; i<nneurons*2; i+=4, weights+=ninputs*4)
@@ -188,60 +185,13 @@ static float scale_net_c(int ninputs, int nneurons, const float *weights, const 
     return bias+5*scale*weighted_average(tmp, tmp+nneurons, nneurons);
 }
 
-
-
-void *dll = NULL;
-
-static int test_net(const float *weights, const float *pix, float *tmp)
-{
-    int ret;
-    asm(
-        "push %1 \n"
-        "call *%4 \n"
-        "pop %1 \n"
-        :"=a"(ret), "+d"(tmp), "+c"(weights)
-        :"a"(pix), "r"(dll+0x4380)
-        :"memory"
-    );
-    return ret;
-}
-
-static float scale_net(int ninputs, int nneurons, const float *weights, const float *pix, float *tmp, float bias, float scale)
-{
-    static float ret; // static because otherwise we run out of regs
-    ret = 0;
-    asm(
-        "push %8 \n"
-        "sub  $8, %%esp \n"
-        "movss %5, 4(%%esp) \n"
-        "movss %4,  (%%esp) \n"
-        "push %3 \n"
-        "push %2 \n"
-        "call *%9 \n"
-        "add $20, %%esp \n"
-        // eax and edx are specified just as a clobber, not because it matters which variables go in them.
-        :"+m"(ret), "+c"(ninputs), "+a"(pix), "+d"(weights), "+x"(bias), "+x"(scale)
-        :"S"(nneurons), "D"(tmp), "i"(&ret), "r"(dll+0x1bf0)
-        :"memory"
-    );
-    return ret;
-}
-
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
-    if(!dll) dll = dlopen("nnedi3.dll", 0);
-    if(!dll) abort();
     int twidth = width+11;
     int theight = height*2+10;
     int tstride = (twidth+15)&~15;
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
-    void (*cast_pixels_12x4)(const uint8_t *src, int stride2, float *dst, float *mean) = dll+0x5000;
-    void (*cast_pixels_general)(const uint8_t *src, int stride2, int width, int height, float *bias, float *scale, float *dst) = dll+0x5bf0;
-    ALIGNED_16(float test_weights[252]);
-    ALIGNED_16(float scale_weights[49*32]);
-    memcpy(test_weights, dll+0x240f8, sizeof(test_weights));
-    memcpy(scale_weights, dll+0x244e8, sizeof(scale_weights));
 
     // L/R mirroring ends up with only 1 copy of the last column.
     // T/B mirroring ends up with 2 copies of the last row.
@@ -263,13 +213,13 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             ALIGNED_16(float fbuf[48]);
             ALIGNED_16(float ftmp[36]); // test uses 36, scale uses 32
             float mean, scale;
-            cast_pixels_12x4_c(pix-3*tstride-5, tstride, fbuf, &mean);
-            int t = test_net_c(test_weights, fbuf, ftmp);
+            cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, &mean);
+            int t = test_net(test_weights, fbuf);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
-                cast_pixels_general_c(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
-                float v = scale_net_c(48, 16, scale_weights, fbuf, ftmp, mean, scale);
+                cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
+                float v = scale_net(48, 16, scale_weights_8x6x16, fbuf, ftmp, mean, scale);
                 *pix = av_clip_uint8(v+.5f);
             }
         }
