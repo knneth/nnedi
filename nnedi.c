@@ -211,7 +211,6 @@ static inline v4f exp2ps(v4f x)
     static const v4f ss_1      = SPLATPS(1.0);
     static const v4f ss_ln2    = SPLATPS(M_LN2);
     static const v4f ss_0_5035 = SPLATPS(0.5035*M_LN2*M_LN2);
-    static const v4f ss_0_1667 = SPLATPS(0.1667*M_LN2*M_LN2*M_LN2);
     v4f t, u, v;
     asm volatile (
         "movaps %0, %2 \n\t"
@@ -222,17 +221,13 @@ static inline v4f exp2ps(v4f x)
         "subps  %0, %2 \n\t"
         "movaps %2, %0 \n\t"
         "mulps  %2, %2 \n\t"
-        "movaps %2, %1 \n\t"
-        "mulps  %0, %2 \n\t"
         "mulps  %6, %0 \n\t"
-        "mulps  %7, %1 \n\t"
-        "mulps  %8, %2 \n\t"
+        "mulps  %7, %2 \n\t"
         "addps  %5, %0 \n\t"
-        "addps  %1, %0 \n\t"
         "addps  %2, %0 \n\t"
         "paddd  %3, %0 \n\t"
         :"+x"(x), "=x"(t), "=x"(u), "=x"(v)
-        :"m"(ss_bias), "m"(ss_1), "m"(ss_ln2), "m"(ss_0_5035), "m"(ss_0_1667)
+        :"m"(ss_bias), "m"(ss_1), "m"(ss_ln2), "m"(ss_0_5035)
     );
     return x;
 }
