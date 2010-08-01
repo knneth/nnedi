@@ -55,6 +55,8 @@ static inline v4f splatps(float x)
     return (v4f){x,x,x,x};
 }
 
+#define SPLATPS(x) {x,x,x,x}
+
 static inline float haddps(v4f x)
 {
     float ret, tmp;
@@ -134,13 +136,69 @@ static inline v4f sigmoid_x4(v4f x)
     return x;
 }
 
+static inline float vec_max(float *x, int n)
+{
+//  float max = x[0];
+//  for(int i=1; i<n; i++)
+//      max = fmaxf(max, x[i]);
+    intptr_t i = n*4-32;
+    float max, tmp;
+    asm("movaps 16(%3,%2), %0 \n"
+        "maxps    (%3,%2), %0 \n"
+        "1: \n"
+        "sub          $32, %2 \n"
+        "maxps  16(%3,%2), %0 \n"
+        "maxps    (%3,%2), %0 \n"
+        "jg 1b \n"
+        "movhlps       %0, %1 \n"
+        "maxps         %1, %0 \n"
+        "pshuflw  $14, %0, %1 \n"
+        "maxss         %1, %0 \n"
+        :"=x"(max), "=x"(tmp), "+&r"(i)
+        :"r"(x)
+    );
+    return max;
+}
+
+static inline v4f exp2ps(v4f x)
+{
+    // this might be excessively precise.
+    static const v4f ss_bias   = SPLATPS(3<<22);
+    static const v4f ss_1      = SPLATPS(1.0);
+    static const v4f ss_ln2    = SPLATPS(M_LN2);
+    static const v4f ss_0_5035 = SPLATPS(0.5035*M_LN2*M_LN2);
+    static const v4f ss_0_1667 = SPLATPS(0.1667*M_LN2*M_LN2*M_LN2);
+    v4f t, u, v;
+    asm volatile (
+        "movaps %0, %2 \n\t"
+        "addps  %4, %0 \n\t"
+        "movaps %0, %3 \n\t"
+        "subps  %4, %0 \n\t" // round(x)
+        "pslld $23, %3 \n\t"
+        "subps  %0, %2 \n\t"
+        "movaps %2, %0 \n\t"
+        "mulps  %2, %2 \n\t"
+        "movaps %2, %1 \n\t"
+        "mulps  %0, %2 \n\t"
+        "mulps  %6, %0 \n\t"
+        "mulps  %7, %1 \n\t"
+        "mulps  %8, %2 \n\t"
+        "addps  %5, %0 \n\t"
+        "addps  %1, %0 \n\t"
+        "addps  %2, %0 \n\t"
+        "paddd  %3, %0 \n\t"
+        :"+x"(x), "=x"(t), "=x"(u), "=x"(v)
+        :"m"(ss_bias), "m"(ss_1), "m"(ss_ln2), "m"(ss_0_5035), "m"(ss_0_1667)
+    );
+    return x;
+}
+
 static inline void softmax(float *x, int n)
 {
-    float max = x[0];
-    for(int i=1; i<n; i++)
-        max = fmaxf(max, x[i]);
-    for(int i=0; i<n; i++)
-        x[i] = exp(x[i]-max);
+    v4f max = splatps(vec_max(x,n));
+    for(int i=0; i<n; i+=4)
+        // constant factor could be merged into weights
+        *(v4f*)(x+i) = exp2ps((*(v4f*)(x+i) - max) * splatps(M_LOG2E));
 }
 
 static inline float weighted_average(float *weights, float *x, int n)
