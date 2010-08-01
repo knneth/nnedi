@@ -15,7 +15,6 @@ typedef int16_t __attribute__((vector_size(16))) v8si;
 
 static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
 static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
-static const v4si unpackbd_shuf = { 0xffffff00, 0xffffff01, 0xffffff02, 0xffffff03 };
 
 static inline v4si splatpi(int x)
 {
@@ -384,26 +383,29 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
         *invstddev = 0;
         *stddev = 0;
     }
-    for(int y=0; y<height; y++)
-        for(int x=0; x<width; x++, dst++)
-            *dst = src[y*stride+x]*16 - (sum+1)/3;
-    return;
 
-    v4f biasv = splatps(bias);
-//  v4f scalev = splatps(*invstddev);
-    for(int y=0; y<height; y++)
-        for(int x=0; x<width; x+=4, dst+=4)
-            asm("movd         %1, %%xmm0 \n"
-                "pshufb       %2, %%xmm0 \n"
-                "cvtdq2ps %%xmm0, %%xmm0 \n"
-                "subps        %3, %%xmm0 \n"
-//              "mulps        %4, %%xmm0 \n"
-                "movaps   %%xmm0, %0 \n"
-                :"=m"(*(v4f*)dst)
-                :"m"(src[y*stride+x]),
-                 "x"(unpackbd_shuf), "x"(biasv)//, "x"(scalev)
-                :"xmm0"
-            );
+#define ROW(dst, src)\
+        "movq       "src", %%xmm0 \n"\
+        "punpcklbw %%xmm3, %%xmm0 \n"\
+        "psllw         $4, %%xmm0 \n"\
+        "psubw     %%xmm2, %%xmm0 \n"\
+        "movdqa    %%xmm0, "dst"  \n"\
+
+    asm("movd            %5, %%xmm2 \n"
+        "pshuflw $0, %%xmm2, %%xmm2 \n"
+        "punpcklqdq  %%xmm2, %%xmm2 \n"
+        "pxor        %%xmm3, %%xmm3 \n"
+        ROW( "0(%1)", "0(%2)")
+        ROW("16(%1)", "0(%2,%4)")
+        ROW("32(%1)", "0(%2,%4,2)")
+        ROW("48(%1)", "0(%3)")
+        ROW("64(%1)", "0(%3,%4)")
+        ROW("80(%1)", "0(%3,%4,2)")
+        :"=m"(*(struct {int16_t x[48];}*)dst)
+        :"r"(dst), "r"(src), "r"(src+stride*3), "r"(stride), "r"((sum+1)/3)
+        :"xmm0", "xmm1", "xmm2", "xmm3"
+    );
+#undef ROW
 }
 
 // FIXME cap scaling factors so that intermediate sums don't overflow.
