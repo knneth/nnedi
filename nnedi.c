@@ -211,7 +211,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
             ALIGNED_16(float fbuf[48]);
-            ALIGNED_16(float ftmp[36]); // test uses 36, scale uses 32
+            ALIGNED_16(float ftmp[128]);
             float mean, scale;
             cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, &mean);
             int t = test_net(test_weights, fbuf);
@@ -219,7 +219,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
                 cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
-                float v = scale_net(48, 16, scale_weights_8x6x16, fbuf, ftmp, mean, scale);
+                float v = scale_net(48, 64, scale_weights_8x6x64, fbuf, ftmp, mean, scale);
                 *pix = av_clip_uint8(v+.5f);
             }
         }
