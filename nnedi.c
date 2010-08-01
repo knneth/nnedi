@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <libavutil/avutil.h>
+#include <bench.h>
 #include "nnedi.h"
 
 #define ALIGNED_16(x) __attribute__((aligned(16))) x
@@ -105,14 +106,22 @@ static inline v4f sigmoid_x4(v4f x)
 
 static int test_net_c(const float *weights, const float *pix, float *unused)
 {
-    v4f tmp[3];
-    tmp[0] = sigmoid_x4(dotproduct_x4(weights, pix, 48, 48) + *(v4f*)(weights+48*4));
+    ALIGNED_16(float tmp[8]);
+    *(v4f*)tmp = sigmoid_x4(dotproduct_x4(weights, pix, 48, 48) + *(v4f*)(weights+48*4));
     weights += 49*4;
-    tmp[1] = sigmoid_x4(dotproduct_x4(weights, tmp, 4, 4) + *(v4f*)(weights+4*4));
+    *(v4f*)(tmp+4) = sigmoid_x4(dotproduct_x4(weights, tmp, 4, 4) + *(v4f*)(weights+4*4));
     weights += 5*4;
-    tmp[2] = sigmoid_x4(dotproduct_x4(weights, tmp, 8, 8) + *(v4f*)(weights+8*4));
-    float *f = &tmp[2];
-    return fabsf(fmaxf(f[0],f[1])) > fabsf(fmaxf(f[2],f[3]));
+    v4f x = sigmoid_x4(dotproduct_x4(weights, tmp, 8, 8) + *(v4f*)(weights+8*4));
+    v4f y;
+    int ret = 0;
+    asm("pshufd $0xa0, %1, %2 \n" // could be a pshuflw if I reordered the weights
+        "maxps   %2, %1 \n"
+        "movhlps %1, %2 \n"
+        "comiss  %2, %1 \n"
+        "seta    %b0 \n" // could directly use the flags in the branch
+        :"+r"(ret), "+x"(x), "=x"(y)
+    );
+    return ret;
 }
 
 
