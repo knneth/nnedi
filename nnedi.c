@@ -290,23 +290,23 @@ static float scale_net(int ninputs, int nneurons, const float *weights, const fl
 
 static void shift_testblock(int16_t *pix)
 {
-    asm("movdqa      80(%0), %%xmm4 \n"
-        "movdqa      64(%0), %%xmm3 \n"
-        "movdqa      48(%0), %%xmm2 \n"
-        "movdqa      32(%0), %%xmm1 \n"
-        "movdqa      16(%0), %%xmm0 \n"
-        "palignr $2, %%xmm4, %%xmm5 \n"
-        "movdqa      %%xmm5, 80(%0) \n"
-        "palignr $2, %%xmm3, %%xmm4 \n"
-        "movdqa      %%xmm4, 64(%0) \n"
-        "palignr $2, %%xmm2, %%xmm3 \n"
-        "movdqa      %%xmm3, 48(%0) \n"
-        "palignr $2, %%xmm1, %%xmm2 \n"
-        "movdqa      %%xmm2, 32(%0) \n"
-        "palignr $2, %%xmm0, %%xmm1 \n"
-        "movdqa      %%xmm1, 16(%0) \n"
-        "palignr $2,   (%0), %%xmm0 \n"
-        "movdqa      %%xmm0,   (%0) \n"
+    // memcpy(pix, pix+4, 44*sizeof(*pix));
+    asm("movdqa      80(%0), %%xmm5 \n"
+        "movdqa      64(%0), %%xmm4 \n"
+        "movdqa      48(%0), %%xmm3 \n"
+        "movdqa      32(%0), %%xmm2 \n"
+        "movdqa      16(%0), %%xmm1 \n"
+        "movhps      %%xmm5, 80(%0) \n"
+        "palignr $8, %%xmm4, %%xmm5 \n"
+        "movdqa      %%xmm5, 64(%0) \n"
+        "palignr $8, %%xmm3, %%xmm4 \n"
+        "movdqa      %%xmm4, 48(%0) \n"
+        "palignr $8, %%xmm2, %%xmm3 \n"
+        "movdqa      %%xmm3, 32(%0) \n"
+        "palignr $8, %%xmm1, %%xmm2 \n"
+        "movdqa      %%xmm2, 16(%0) \n"
+        "palignr $8,   (%0), %%xmm1 \n"
+        "movdqa      %%xmm1,   (%0) \n"
         ::"r"(pix)
     );
 }
@@ -409,7 +409,7 @@ static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
         for(int i=0; i<48; i++)
             max = fmaxf(max, fabsf(src[i]));
         for(int i=0; i<48; i++)
-            sum += dsti[i] = src[i]*0x3fff/max;
+            sum += dsti[i] = src[(i>>2)+(i&3)*12]*0x3fff/max;
         dstf[j] = max/(0x3fff*127.5f);
         dstf[j+4] = sum*dstf[j];
     }
@@ -472,14 +472,14 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         block_sums(sum_w12+((y+3)&3)*tstride, tpix+(y+2)*2*tstride-5, width, 12);
         for(int i=0; i<4; i++)
             for(int j=1; j<12; j++)
-                ibuf[j+i*12] = tpix[j-6+(y-1+i)*2*tstride];
+                ibuf[j*4+i] = tpix[j-6+(y-1+i)*2*tstride];
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
             float mean = (sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3])*(1.f/48);
             float stddev;
             shift_testblock(ibuf);
             for(int i=0; i<4; i++)
-                ibuf[11+i*12] = pix[(2*i-3)*tstride+6];
+                ibuf[44+i] = pix[(2*i-3)*tstride+6];
             int t = test_net(test_weights_i, test_weights_f, ibuf, mean);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
