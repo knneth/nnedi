@@ -81,18 +81,18 @@ static inline v4f haddps_x4(v4f x0, v4f x1, v4f x2, v4f x3)
 static inline v4si haddpi_x4(v4si x0, v4si x1, v4si x2, v4si x3)
 {
     v4si ret;
-    asm("movdqa   %1, %0 \n"
-        "unpcklps %3, %1 \n" // FIXME
-        "unpckhps %3, %0 \n"
-        "paddd    %1, %0 \n" // saturate?
-        "movdqa   %2, %1 \n"
-        "unpcklps %4, %2 \n"
-        "unpckhps %4, %1 \n"
-        "paddd    %2, %1 \n"
-        "movdqa   %0, %2 \n"
-        "movlhps  %1, %0 \n"
-        "movhlps  %2, %1 \n"
-        "paddd    %1, %0 \n"
+    asm("movdqa     %1, %0 \n"
+        "punpckldq  %3, %1 \n"
+        "punpckhdq  %3, %0 \n"
+        "paddd      %1, %0 \n"
+        "movdqa     %2, %1 \n"
+        "punpckldq  %4, %2 \n"
+        "punpckhdq  %4, %1 \n"
+        "paddd      %2, %1 \n"
+        "movdqa     %0, %2 \n"
+        "punpcklqdq %1, %0 \n"
+        "punpckhqdq %1, %2 \n"
+        "paddd      %2, %0 \n"
         :"=&x"(ret), "+&x"(x0), "+&x"(x2)
         :"x"(x1), "x"(x3)
     );
