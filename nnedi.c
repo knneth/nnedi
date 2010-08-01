@@ -243,10 +243,81 @@ static void cast_pixels_12x4(const uint8_t *src, int stride, float *dst, float m
             );
 }
 
-static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float mean, float invstddev, float *dst)
+static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *dst)
 {
-    v4f biasv = splatps(mean);
-    v4f scalev = splatps(invstddev);
+    int sum = 0, sum2 = 0;
+#if 0
+    for(int y=0; y<height; y++)
+        for(int x=0; x<width; x++) {
+            int v = src[y*stride+x];
+            sum += v;
+            sum2 += v*v;
+        }
+#else
+    asm("pxor       %%xmm0, %%xmm0 \n"
+        "movq    (%2),      %%xmm1 \n"
+        "movq    (%2,%3),   %%xmm3 \n"
+        "movdqa     %%xmm1, %%xmm2 \n"
+        "punpcklqdq %%xmm3, %%xmm2 \n"
+        "punpcklbw  %%xmm0, %%xmm1 \n"
+        "punpcklbw  %%xmm0, %%xmm3 \n"
+        "pmaddwd    %%xmm1, %%xmm1 \n"
+        "pmaddwd    %%xmm3, %%xmm3 \n"
+        "psadbw     %%xmm0, %%xmm2 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+
+        "movq    (%2,%3,2), %%xmm3 \n"
+        "movq    (%4),      %%xmm5 \n"
+        "movdqa     %%xmm3, %%xmm4 \n"
+        "punpcklqdq %%xmm5, %%xmm4 \n"
+        "punpcklbw  %%xmm0, %%xmm3 \n"
+        "punpcklbw  %%xmm0, %%xmm5 \n"
+        "pmaddwd    %%xmm3, %%xmm3 \n"
+        "pmaddwd    %%xmm5, %%xmm5 \n"
+        "psadbw     %%xmm0, %%xmm4 \n"
+        "paddd      %%xmm5, %%xmm3 \n"
+        "paddd      %%xmm4, %%xmm2 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+
+        "movq    (%4,%3),   %%xmm3 \n"
+        "movq    (%4,%3,2), %%xmm5 \n"
+        "movdqa     %%xmm3, %%xmm4 \n"
+        "punpcklqdq %%xmm5, %%xmm4 \n"
+        "punpcklbw  %%xmm0, %%xmm3 \n"
+        "punpcklbw  %%xmm0, %%xmm5 \n"
+        "pmaddwd    %%xmm3, %%xmm3 \n"
+        "pmaddwd    %%xmm5, %%xmm5 \n"
+        "psadbw     %%xmm0, %%xmm4 \n"
+        "paddd      %%xmm5, %%xmm3 \n"
+        "paddd      %%xmm4, %%xmm2 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+
+        "movhlps    %%xmm2, %%xmm4 \n"
+        "movhlps    %%xmm1, %%xmm3 \n"
+        "paddd      %%xmm4, %%xmm2 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+        "pshuflw $14,%%xmm1, %%xmm3 \n"
+        "paddd      %%xmm3, %%xmm1 \n"
+        "movd       %%xmm2, %0 \n"
+        "movd       %%xmm1, %1 \n"
+        :"=r"(sum), "=r"(sum2)
+        :"r"(src), "r"(stride), "r"(src+stride*3)
+        :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
+    );
+#endif
+    float norm = 1.f / (width*height);
+    float bias = *mean = sum*norm;
+    float var = sum2*norm - bias*bias;
+    float scale;
+    if(var > FLT_EPSILON) {
+        scale = rsqrtss(var);
+        *stddev = rcpss(scale);
+    } else {
+        *stddev = 0;
+        scale = 0;
+    }
+    v4f biasv = splatps(bias);
+    v4f scalev = splatps(scale);
     for(int y=0; y<height; y++)
         for(int x=0; x<width; x+=4, dst+=4)
             asm("movd         %1, %%xmm0 \n"
@@ -278,7 +349,7 @@ static void munge_scale_weights(float *dst, const float *src)
         dst[i] *= M_LOG2E;
 }
 
-static void block_sums(uint16_t *dst, const uint8_t *src, int n, int width)
+static void block_sums(uint16_t *dst, uint8_t *src, int n, int width)
 {
     int sum = 0;
     for(int i=0; i<width; i++)
@@ -286,35 +357,6 @@ static void block_sums(uint16_t *dst, const uint8_t *src, int n, int width)
     dst[0] = sum;
     for(int i=1; i<n; i++)
         dst[i] = sum += src[i+width-1] - src[i-1];
-}
-
-static void block_sums2(uint16_t *dst, uint32_t *dst2, const uint8_t *src, int n, int width)
-{
-    int sum = 0, sum2 = 0;
-    for(int i=0; i<width; i++) {
-        sum += src[i];
-        sum2 += src[i]*src[i];
-    }
-    dst[0] = sum;
-    dst2[0] = sum2;
-    for(int i=1; i<n; i++) {
-        int a = src[i+width-1], b = src[i-1];
-        dst[i] = sum += a - b;
-        dst2[i] = sum2 += a*a - b*b;
-    }
-}
-
-static void get_stddev(uint16_t *sum_w8, uint32_t *sum2_w8, int stride, float *mean, float *stddev, float *invstddev)
-{
-    *mean = (sum_w8[0] + sum_w8[stride] + sum_w8[stride*2] + sum_w8[stride*3] + sum_w8[stride*4] + sum_w8[stride*5])*(1.f/48);
-    float mean2 = (sum2_w8[0] + sum2_w8[stride] + sum2_w8[stride*2] + sum2_w8[stride*3] + sum2_w8[stride*4] + sum2_w8[stride*5])*(1.f/48);
-    float var = mean2 - *mean * *mean;
-    if(var > FLT_EPSILON) {
-        *invstddev = rsqrtss(var);
-        *stddev = rcpss(*invstddev);
-    } else {
-        *invstddev = *stddev = 0;
-    }
 }
 
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
@@ -325,8 +367,6 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
     uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
-    uint16_t *sum_w8 = memalign(16, 6*tstride*sizeof(uint16_t));
-    uint32_t *sum2_w8 = memalign(16, 6*tstride*sizeof(uint32_t));
     ALIGNED_16(float test_weights2[252]);
     ALIGNED_16(float scale_weights2[49*2*NNS]);
     munge_test_weights(test_weights2, test_weights);
@@ -349,23 +389,19 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint64_t t0 = read_time();
     for(int y=0; y<3; y++)
         block_sums(sum_w12+y*tstride, tpix+(y-1)*2*tstride-5, width, 12);
-    for(int y=0; y<5; y++)
-        block_sums2(sum_w8+y*tstride, sum2_w8+y*tstride, tpix+(y-2)*2*tstride-3, width, 8);
     for(int y=0; y<height; y++) {
         block_sums(sum_w12+((y+3)&3)*tstride, tpix+(y+2)*2*tstride-5, width, 12);
-        block_sums2(sum_w8+((y+5)%6)*tstride, sum2_w8+((y+5)%6)*tstride, tpix+(y+3)*2*tstride-3, width, 8);
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
             ALIGNED_16(float fbuf[48]);
             float mean = (sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3])*(1.f/48);
+            float stddev;
             cast_pixels_12x4(pix-3*tstride-5, tstride*2, fbuf, mean);
             int t = test_net(test_weights2, fbuf);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
-                float stddev, invstddev;
-                get_stddev(sum_w8+x, sum2_w8+x, tstride, &mean, &stddev, &invstddev);
-                cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, mean, invstddev, fbuf);
+                cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, fbuf);
                 float v = scale_net(48, NNS, scale_weights2, fbuf)*stddev+mean;
                 *pix = av_clip_uint8(v+.5f);
             }
@@ -377,6 +413,4 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         memcpy(dst+y*dstride, tpix+y*tstride, width);
     free(tbuf);
     free(sum_w12);
-    free(sum_w8);
-    free(sum2_w8);
 }
