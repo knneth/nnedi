@@ -221,7 +221,7 @@ static float scale_net(int ninputs, int nneurons, const float *weights, const fl
     return 5*weighted_average(tmp, tmp+nneurons, nneurons);
 }
 
-static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float mean)
+static void cast_pixels_12x4(const uint8_t *src, int stride, float *dst, float mean)
 {
     v4f biasv = splatps(mean);
     for(int y=0; y<4; y++)
@@ -232,18 +232,18 @@ static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float 
                 "subps        %3, %%xmm0 \n"
                 "movaps   %%xmm0, %0 \n"
                 :"=m"(*(v4f*)dst)
-                :"m"(src[y*stride2*2+x]),
+                :"m"(src[y*stride+x]),
                  "x"(unpackbd_shuf), "x"(biasv)
                 :"xmm0"
             );
 }
 
-static void cast_pixels_general(const uint8_t *src, int stride2, int width, int height, float *mean, float *stddev, float *dst)
+static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *dst)
 {
     int sum = 0, sum2 = 0;
     for(int y=0; y<height; y++)
         for(int x=0; x<width; x++) {
-            int v = src[y*stride2*2+x];
+            int v = src[y*stride+x];
             sum += v;
             sum2 += v*v;
         }
@@ -269,7 +269,7 @@ static void cast_pixels_general(const uint8_t *src, int stride2, int width, int 
                 "mulps        %4, %%xmm0 \n"
                 "movaps   %%xmm0, %0 \n"
                 :"=m"(*(v4f*)dst)
-                :"m"(src[y*stride2*2+x]),
+                :"m"(src[y*stride+x]),
                  "x"(unpackbd_shuf), "x"(biasv), "x"(scalev)
                 :"xmm0"
             );
@@ -338,12 +338,12 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             ALIGNED_16(float fbuf[48]);
             float mean = (sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3])*(1.f/48);
             float stddev;
-            cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, mean);
+            cast_pixels_12x4(pix-3*tstride-5, tstride*2, fbuf, mean);
             int t = test_net(test_weights2, fbuf);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
-                cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &stddev, fbuf);
+                cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, fbuf);
                 float v = scale_net(48, NNS, scale_weights2, fbuf)*stddev+mean;
                 *pix = av_clip_uint8(v+.5f);
             }
