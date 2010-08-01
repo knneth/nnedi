@@ -10,7 +10,8 @@
 #define NNS 64
 
 typedef float __attribute__((vector_size(16))) v4f;
-typedef int   __attribute__((vector_size(16))) v4si;
+typedef int32_t __attribute__((vector_size(16))) v4si;
+typedef int16_t __attribute__((vector_size(16))) v8si;
 
 static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
 static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
@@ -77,6 +78,27 @@ static inline v4f haddps_x4(v4f x0, v4f x1, v4f x2, v4f x3)
     return ret;
 }
 
+static inline v4si haddpi_x4(v4si x0, v4si x1, v4si x2, v4si x3)
+{
+    v4si ret;
+    asm("movdqa   %1, %0 \n"
+        "unpcklps %3, %1 \n" // FIXME
+        "unpckhps %3, %0 \n"
+        "paddd    %1, %0 \n" // saturate?
+        "movdqa   %2, %1 \n"
+        "unpcklps %4, %2 \n"
+        "unpckhps %4, %1 \n"
+        "paddd    %2, %1 \n"
+        "movdqa   %0, %2 \n"
+        "movlhps  %1, %0 \n"
+        "movhlps  %2, %1 \n"
+        "paddd    %1, %0 \n"
+        :"=&x"(ret), "+&x"(x0), "+&x"(x2)
+        :"x"(x1), "x"(x3)
+    );
+    return ret;
+}
+
 static inline float rcpss(float x)
 {
     asm("rcpss %0, %0 \n" :"+x"(x));
@@ -87,6 +109,13 @@ static inline float rsqrtss(float x)
 {
     asm("rsqrtss %0, %0 \n" :"+x"(x));
     return x;
+}
+
+static inline v4f cvtdq2ps(v4si x)
+{
+    v4f ret;
+    asm("cvtdq2ps %1, %0 \n" :"=x"(ret) :"x"(x));
+    return ret;
 }
 
 static inline v4f dotproduct_x4(const float *weights, const float *inputs, int n, int stride)
@@ -104,6 +133,39 @@ static inline v4f dotproduct_x4(const float *weights, const float *inputs, int n
         s3 += *(v4f*)(weights+i+stride*3) * in;
     }
     return haddps_x4(s0, s1, s2, s3);
+}
+
+static inline v4si dotproduct_x4i(const int16_t *weights, const int16_t *inputs, int n, int stride)
+{
+    v4si s0,s1,s2,s3,t4,t5,t6,t7;
+    asm("movdqa %4, %0 \n"
+        "movdqa %0, %1 \n"
+        "movdqa %0, %2 \n"
+        "movdqa %0, %3 \n"
+        "pmaddwd %5, %0 \n"
+        "pmaddwd %6, %1 \n"
+        "pmaddwd %7, %2 \n"
+        "pmaddwd %8, %3 \n"
+        :"=&x"(s0), "=&x"(s1), "=&x"(s2), "=&x"(s3)
+        :"m"(inputs[0]), "m"(weights[0]), "m"(weights[stride]), "m"(weights[stride*2]), "m"(weights[stride*3])
+    );
+    for(int i=8; i<n; i+=8)
+        asm("movdqa %8, %4 \n"
+            "movdqa %4, %5 \n"
+            "movdqa %4, %6 \n"
+            "movdqa %4, %7 \n"
+            "pmaddwd %9, %4 \n"
+            "pmaddwd %10, %5 \n"
+            "pmaddwd %11, %6 \n"
+            "pmaddwd %12, %7 \n"
+            "paddd   %4, %0 \n"
+            "paddd   %5, %1 \n"
+            "paddd   %6, %2 \n"
+            "paddd   %7, %3 \n"
+            :"+&x"(s0), "+&x"(s1), "+&x"(s2), "+&x"(s3), "=&x"(t4), "=&x"(t5), "=&x"(t6), "=&x"(t7)
+            :"m"(inputs[i]), "m"(weights[i]), "m"(weights[i+stride]), "m"(weights[i+stride*2]), "m"(weights[i+stride*3])
+        );
+    return haddpi_x4(s0, s1, s2, s3);
 }
 
 static inline v4f sigmoid_x4(v4f x)
@@ -194,14 +256,14 @@ static inline float weighted_average(float *weights, float *x, int n)
     return haddps(dot)/haddps(sum);
 }
 
-static int test_net(const float *weights, const float *pix)
+static int test_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float mean)
 {
-    ALIGNED_16(float tmp[8]);
-    *(v4f*)tmp = sigmoid_x4(dotproduct_x4(weights, pix, 48, 48) + *(v4f*)(weights+48*4));
-    weights += 49*4;
-    *(v4f*)(tmp+4) = sigmoid_x4(dotproduct_x4(weights, tmp, 4, 4) + *(v4f*)(weights+4*4));
-    weights += 5*4;
-    v4f x = sigmoid_x4(dotproduct_x4(weights, tmp, 8, 8) + *(v4f*)(weights+8*4));
+    v4f tmp[2];
+    const v4f *weightsv = (v4f*)weightsf;
+    tmp[0] = cvtdq2ps(dotproduct_x4i(weightsi, pix, 48, 48))*weightsv[0] - splatps(mean)*weightsv[1];
+    tmp[0] = sigmoid_x4(tmp[0] + weightsv[2]);
+    tmp[1] = sigmoid_x4(dotproduct_x4(weightsf+12, (float*)tmp, 4, 4) + weightsv[7]);
+    v4f x = sigmoid_x4(dotproduct_x4(weightsf+32, (float*)tmp, 8, 8) + weightsv[16]);
     v4f y;
     int ret = 0;
     asm("pshufd $0xa0, %1, %2 \n" // could be a pshuflw if I reordered the weights
@@ -226,21 +288,29 @@ static float scale_net(int ninputs, int nneurons, const float *weights, const fl
     return 5*weighted_average(tmp, tmp+nneurons, nneurons);
 }
 
-static void cast_pixels_12x4(const uint8_t *src, int stride, float *dst, float mean)
+static void cast_pixels_12x4(const uint8_t *src, int stride, int16_t *dst)
 {
-    v4f biasv = splatps(mean);
-    for(int y=0; y<4; y++)
-        for(int x=0; x<12; x+=4, dst+=4)
-            asm("movd         %1, %%xmm0 \n"
-                "pshufb       %2, %%xmm0 \n"
-                "cvtdq2ps %%xmm0, %%xmm0 \n"
-                "subps        %3, %%xmm0 \n"
-                "movaps   %%xmm0, %0 \n"
-                :"=m"(*(v4f*)dst)
-                :"m"(src[y*stride+x]),
-                 "x"(unpackbd_shuf), "x"(biasv)
-                :"xmm0"
-            );
+#define ROW(dst, src)\
+        "movd   "src", %%mm0 \n"\
+        "movd 4+"src", %%mm1 \n"\
+        "movd 8+"src", %%mm2 \n"\
+        "punpcklbw %%mm3, %%mm0 \n"\
+        "punpcklbw %%mm3, %%mm1 \n"\
+        "punpcklbw %%mm3, %%mm2 \n"\
+        "movq %%mm0,    "dst" \n"\
+        "movq %%mm1,  8+"dst" \n"\
+        "movq %%mm2, 16+"dst" \n"\
+
+    asm("pxor %%mm3, %%mm3 \n"
+        ROW( "0(%1)", "0(%2)")
+        ROW("24(%1)", "0(%2,%3)")
+        ROW("48(%1)", "0(%2,%3,2)")
+        ROW("72(%1)", "0(%2,%4)")
+        "emms \n"
+        :"=m"(*(struct {int16_t x[48];}*)dst)
+        :"r"(dst), "r"(src), "r"(stride), "r"(stride*3)
+    );
+#undef ROW
 }
 
 static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *dst)
@@ -333,11 +403,19 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
             );
 }
 
-static void munge_test_weights(float *dst, const float *src)
+static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
 {
-    memcpy(dst, src, 252*sizeof(float));
-    for(int i=0; i<48*4; i++)
-        dst[i] *= 1/127.5f;
+    for(int j=0; j<4; j++, dsti+=48, src+=48) {
+        float max = 0;
+        int sum = 0;
+        for(int i=0; i<48; i++)
+            max = fmaxf(max, fabsf(src[i]));
+        for(int i=0; i<48; i++)
+            sum += dsti[i] = src[i]*0x3fff/max;
+        dstf[j] = max/(0x3fff*127.5f);
+        dstf[j+4] = sum*dstf[j];
+    }
+    memcpy(dstf+8, src, 60*sizeof(float));
 }
 
 static void munge_scale_weights(float *dst, const float *src)
@@ -367,9 +445,10 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
     uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
-    ALIGNED_16(float test_weights2[252]);
+    ALIGNED_16(int16_t test_weights_i[48*4]);
+    ALIGNED_16(float test_weights_f[68]);
     ALIGNED_16(float scale_weights2[49*2*NNS]);
-    munge_test_weights(test_weights2, test_weights);
+    munge_test_weights(test_weights_i, test_weights_f, test_weights);
     munge_scale_weights(scale_weights2, NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
 
     // L/R mirroring ends up with only 1 copy of the last column.
@@ -393,11 +472,12 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         block_sums(sum_w12+((y+3)&3)*tstride, tpix+(y+2)*2*tstride-5, width, 12);
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
+            ALIGNED_16(int16_t ibuf[48]);
             ALIGNED_16(float fbuf[48]);
             float mean = (sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3])*(1.f/48);
             float stddev;
-            cast_pixels_12x4(pix-3*tstride-5, tstride*2, fbuf, mean);
-            int t = test_net(test_weights2, fbuf);
+            cast_pixels_12x4(pix-3*tstride-5, tstride*2, ibuf);
+            int t = test_net(test_weights_i, test_weights_f, ibuf, mean);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
