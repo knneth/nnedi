@@ -288,29 +288,27 @@ static float scale_net(int ninputs, int nneurons, const float *weights, const fl
     return 5*weighted_average(tmp, tmp+nneurons, nneurons);
 }
 
-static void cast_pixels_12x4(const uint8_t *src, int stride, int16_t *dst)
+static void shift_testblock(int16_t *pix)
 {
-#define ROW(dst, src)\
-        "movd   "src", %%mm0 \n"\
-        "movd 4+"src", %%mm1 \n"\
-        "movd 8+"src", %%mm2 \n"\
-        "punpcklbw %%mm3, %%mm0 \n"\
-        "punpcklbw %%mm3, %%mm1 \n"\
-        "punpcklbw %%mm3, %%mm2 \n"\
-        "movq %%mm0,    "dst" \n"\
-        "movq %%mm1,  8+"dst" \n"\
-        "movq %%mm2, 16+"dst" \n"\
-
-    asm("pxor %%mm3, %%mm3 \n"
-        ROW( "0(%1)", "0(%2)")
-        ROW("24(%1)", "0(%2,%3)")
-        ROW("48(%1)", "0(%2,%3,2)")
-        ROW("72(%1)", "0(%2,%4)")
-        "emms \n"
-        :"=m"(*(struct {int16_t x[48];}*)dst)
-        :"r"(dst), "r"(src), "r"(stride), "r"(stride*3)
+    asm("movdqa      80(%0), %%xmm4 \n"
+        "movdqa      64(%0), %%xmm3 \n"
+        "movdqa      48(%0), %%xmm2 \n"
+        "movdqa      32(%0), %%xmm1 \n"
+        "movdqa      16(%0), %%xmm0 \n"
+        "palignr $2, %%xmm4, %%xmm5 \n"
+        "movdqa      %%xmm5, 80(%0) \n"
+        "palignr $2, %%xmm3, %%xmm4 \n"
+        "movdqa      %%xmm4, 64(%0) \n"
+        "palignr $2, %%xmm2, %%xmm3 \n"
+        "movdqa      %%xmm3, 48(%0) \n"
+        "palignr $2, %%xmm1, %%xmm2 \n"
+        "movdqa      %%xmm2, 32(%0) \n"
+        "palignr $2, %%xmm0, %%xmm1 \n"
+        "movdqa      %%xmm1, 16(%0) \n"
+        "palignr $2,   (%0), %%xmm0 \n"
+        "movdqa      %%xmm0,   (%0) \n"
+        ::"r"(pix)
     );
-#undef ROW
 }
 
 static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *dst)
@@ -448,6 +446,8 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     ALIGNED_16(int16_t test_weights_i[48*4]);
     ALIGNED_16(float test_weights_f[68]);
     ALIGNED_16(float scale_weights2[49*2*NNS]);
+    ALIGNED_16(int16_t ibuf[48]);
+    ALIGNED_16(float fbuf[48]);
     munge_test_weights(test_weights_i, test_weights_f, test_weights);
     munge_scale_weights(scale_weights2, NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
 
@@ -470,13 +470,16 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         block_sums(sum_w12+y*tstride, tpix+(y-1)*2*tstride-5, width, 12);
     for(int y=0; y<height; y++) {
         block_sums(sum_w12+((y+3)&3)*tstride, tpix+(y+2)*2*tstride-5, width, 12);
+        for(int i=0; i<4; i++)
+            for(int j=1; j<12; j++)
+                ibuf[j+i*12] = tpix[j-6+(y-1+i)*2*tstride];
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
-            ALIGNED_16(int16_t ibuf[48]);
-            ALIGNED_16(float fbuf[48]);
             float mean = (sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3])*(1.f/48);
             float stddev;
-            cast_pixels_12x4(pix-3*tstride-5, tstride*2, ibuf);
+            shift_testblock(ibuf);
+            for(int i=0; i<4; i++)
+                ibuf[11+i*12] = pix[(2*i-3)*tstride+6];
             int t = test_net(test_weights_i, test_weights_f, ibuf, mean);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
