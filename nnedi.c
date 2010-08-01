@@ -174,15 +174,16 @@ static int test_net(const float *weights, const float *pix)
     return ret;
 }
 
-static float scale_net(int ninputs, int nneurons, const float *weights, const float *pix, float *tmp, float bias, float scale)
+static float scale_net(int ninputs, int nneurons, const float *weights, const float *pix)
 {
+    ALIGNED_16(float tmp[128]);
     const float *biases = weights+ninputs*nneurons*2;
     for(int i=0; i<nneurons*2; i+=4, weights+=ninputs*4)
         *(v4f*)(tmp+i) = dotproduct_x4(weights, pix, ninputs, ninputs) + *(v4f*)(biases+i);
     softmax(tmp, nneurons);
     for(int i=nneurons; i<nneurons*2; i+=4)
         *(v4f*)(tmp+i) = sigmoid_x4(*(v4f*)(tmp+i));
-    return bias+5*scale*weighted_average(tmp, tmp+nneurons, nneurons);
+    return 5*weighted_average(tmp, tmp+nneurons, nneurons);
 }
 
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
@@ -211,15 +212,14 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
             ALIGNED_16(float fbuf[48]);
-            ALIGNED_16(float ftmp[128]);
-            float mean, scale;
+            float mean, stddev;
             cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, &mean);
             int t = test_net(test_weights, fbuf);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
-                cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
-                float v = scale_net(48, 64, scale_weights_8x6x64, fbuf, ftmp, mean, scale);
+                cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &stddev, fbuf);
+                float v = scale_net(48, 64, scale_weights_8x6x64, fbuf)*stddev+mean;
                 *pix = av_clip_uint8(v+.5f);
             }
         }
