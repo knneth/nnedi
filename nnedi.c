@@ -72,6 +72,18 @@ static inline v4f haddps_x4(v4f x0, v4f x1, v4f x2, v4f x3)
     return ret;
 }
 
+static inline float rcpss(float x)
+{
+    asm("rcpss %0, %0 \n" :"+x"(x));
+    return x;
+}
+
+static inline float rsqrtss(float x)
+{
+    asm("rsqrtss %0, %0 \n" :"+x"(x));
+    return x;
+}
+
 static inline v4f dotproduct_x4(const float *weights, const float *inputs, int n, int stride)
 {
     v4f in = *(v4f*)inputs;
@@ -245,8 +257,8 @@ static void cast_pixels_general(const uint8_t *src, int stride2, int width, int 
     float var = sum2*norm - bias*bias;
     float scale;
     if(var > FLT_EPSILON) {
-        *stddev = sqrt(var);
-        scale = 1 / *stddev;
+        scale = rsqrtss(var);
+        *stddev = rcpss(scale);
     } else {
         *stddev = 0;
         scale = 0;
