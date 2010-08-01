@@ -266,6 +266,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         memcpy(tpix-(y+1)*2*tstride-5, tpix+y*2*tstride-5, twidth);
     for(int y=0; y<3; y++)
         memcpy(tpix+(height+y)*2*tstride-5, tpix+(height-1-y)*2*tstride-5, twidth);
+    uint64_t t0 = read_time();
     for(int y=0; y<height; y++) {
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
@@ -282,6 +283,8 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             }
         }
     }
+    uint64_t t1 = read_time();
+    printf("%d Mcycles\n", (int)((t1-t0)/1000000));
     for(int y=0; y<height*2; y++)
         memcpy(dst+y*dstride, tpix+y*tstride, width);
     free(tbuf);
