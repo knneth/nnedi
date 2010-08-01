@@ -276,12 +276,13 @@ static int test_net(const int16_t *weightsi, const float *weightsf, const int16_
     return ret;
 }
 
-static float scale_net(int ninputs, int nneurons, const float *weights, const float *pix)
+static float scale_net(int ninputs, int nneurons, const float *weights, const float *pix, float invstddev)
 {
     ALIGNED_16(float tmp[128]);
     const float *biases = weights+ninputs*nneurons*2;
+    v4f scalev = splatps(invstddev);
     for(int i=0; i<nneurons*2; i+=4, weights+=ninputs*4)
-        *(v4f*)(tmp+i) = dotproduct_x4(weights, pix, ninputs, ninputs) + *(v4f*)(biases+i);
+        *(v4f*)(tmp+i) = dotproduct_x4(weights, pix, ninputs, ninputs) * scalev + *(v4f*)(biases+i);
     softmax(tmp, nneurons);
     for(int i=nneurons; i<nneurons*2; i+=4)
         *(v4f*)(tmp+i) = sigmoid_x4(*(v4f*)(tmp+i));
@@ -311,7 +312,7 @@ static void shift_testblock(int16_t *pix)
     );
 }
 
-static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *dst)
+static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *invstddev, float *dst)
 {
     int sum = 0, sum2 = 0;
 #if 0
@@ -378,25 +379,25 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
     float var = sum2*norm - bias*bias;
     float scale;
     if(var > FLT_EPSILON) {
-        scale = rsqrtss(var);
-        *stddev = rcpss(scale);
+        *invstddev = rsqrtss(var);
+        *stddev = rcpss(*invstddev);
     } else {
+        *invstddev = 0;
         *stddev = 0;
-        scale = 0;
     }
     v4f biasv = splatps(bias);
-    v4f scalev = splatps(scale);
+//  v4f scalev = splatps(scale);
     for(int y=0; y<height; y++)
         for(int x=0; x<width; x+=4, dst+=4)
             asm("movd         %1, %%xmm0 \n"
                 "pshufb       %2, %%xmm0 \n"
                 "cvtdq2ps %%xmm0, %%xmm0 \n"
                 "subps        %3, %%xmm0 \n"
-                "mulps        %4, %%xmm0 \n"
+//              "mulps        %4, %%xmm0 \n"
                 "movaps   %%xmm0, %0 \n"
                 :"=m"(*(v4f*)dst)
                 :"m"(src[y*stride+x]),
-                 "x"(unpackbd_shuf), "x"(biasv), "x"(scalev)
+                 "x"(unpackbd_shuf), "x"(biasv)//, "x"(scalev)
                 :"xmm0"
             );
 }
@@ -476,7 +477,6 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
             float mean = (sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3])*(1.f/48);
-            float stddev;
             shift_testblock(ibuf);
             for(int i=0; i<4; i++)
                 ibuf[44+i] = pix[(2*i-3)*tstride+6];
@@ -484,8 +484,9 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
-                cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, fbuf);
-                float v = scale_net(48, NNS, scale_weights2, fbuf)*stddev+mean;
+                float stddev, invstddev;
+                cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, &invstddev, fbuf);
+                float v = scale_net(48, NNS, scale_weights2, fbuf, invstddev)*stddev+mean;
                 *pix = av_clip_uint8(v+.5f);
             }
         }
