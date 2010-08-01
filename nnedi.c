@@ -12,43 +12,7 @@ typedef int   __attribute__((vector_size(16))) v4si;
 
 static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
 static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
-
-static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float *mean)
-{
-    int sum = 0;
-    for(int y=0; y<4; y++)
-        for(int x=0; x<12; x++)
-            sum += src[y*stride2*2+x];
-    float bias = *mean = sum * (1/48.f);
-    for(int y=0; y<4; y++)
-        for(int x=0; x<12; x++)
-            *dst++ = (src[y*stride2*2+x] - bias) * (1/127.5f);
-}
-
-static void cast_pixels_general(const uint8_t *src, int stride2, int width, int height, float *mean, float *stddev, float *dst)
-{
-    int sum = 0, sum2 = 0;
-    for(int y=0; y<height; y++)
-        for(int x=0; x<width; x++) {
-            int v = src[y*stride2*2+x];
-            sum += v;
-            sum2 += v*v;
-        }
-    float norm = 1.f / (width*height);
-    float bias = *mean = sum*norm;
-    float var = sum2*norm - bias*bias;
-    float scale;
-    if(var > FLT_EPSILON) {
-        *stddev = sqrt(var);
-        scale = 1 / *stddev;
-    } else {
-        *stddev = 0;
-        scale = 0;
-    }
-    for(int y=0; y<height; y++)
-        for(int x=0; x<width; x++)
-            *dst++ = (src[y*stride2*2+x] - bias) * scale;
-}
+static const v4si unpackbd_shuf = { 0xffffff00, 0xffffff01, 0xffffff02, 0xffffff03 };
 
 static inline v4f splatps(float x)
 {
@@ -242,6 +206,54 @@ static float scale_net(int ninputs, int nneurons, const float *weights, const fl
     for(int i=nneurons; i<nneurons*2; i+=4)
         *(v4f*)(tmp+i) = sigmoid_x4(*(v4f*)(tmp+i));
     return 5*weighted_average(tmp, tmp+nneurons, nneurons);
+}
+
+static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float *mean)
+{
+    int sum = 0;
+    for(int y=0; y<4; y++)
+        for(int x=0; x<12; x++)
+            sum += src[y*stride2*2+x];
+    float bias = *mean = sum * (1/48.f);
+    for(int y=0; y<4; y++)
+        for(int x=0; x<12; x+=4, dst+=4) {
+            asm("movd %1, %%xmm0 \n"
+                "pshufb %2, %%xmm0 \n"
+                "cvtdq2ps %%xmm0, %%xmm0 \n"
+                "subps %3, %%xmm0 \n"
+                "mulps %4, %%xmm0 \n"
+                "movaps %%xmm0, %0 \n"
+                :"=m"(*(v4f*)dst)
+                :"m"(src[y*stride2*2+x]),
+                 "x"(unpackbd_shuf), "x"(splatps(bias)), "x"(splatps(1/127.5f))
+                :"xmm0"
+            );
+        }
+}
+
+static void cast_pixels_general(const uint8_t *src, int stride2, int width, int height, float *mean, float *stddev, float *dst)
+{
+    int sum = 0, sum2 = 0;
+    for(int y=0; y<height; y++)
+        for(int x=0; x<width; x++) {
+            int v = src[y*stride2*2+x];
+            sum += v;
+            sum2 += v*v;
+        }
+    float norm = 1.f / (width*height);
+    float bias = *mean = sum*norm;
+    float var = sum2*norm - bias*bias;
+    float scale;
+    if(var > FLT_EPSILON) {
+        *stddev = sqrt(var);
+        scale = 1 / *stddev;
+    } else {
+        *stddev = 0;
+        scale = 0;
+    }
+    for(int y=0; y<height; y++)
+        for(int x=0; x<width; x++)
+            *dst++ = (src[y*stride2*2+x] - bias) * scale;
 }
 
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
