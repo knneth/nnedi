@@ -8,7 +8,11 @@
 
 #define ALIGNED_16(x) __attribute__((aligned(16))) x
 
-void *dll = NULL;
+typedef float __attribute__((vector_size(16))) v4f;
+typedef int   __attribute__((vector_size(16))) v4si;
+
+static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
+static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
 
 static void cast_pixels_12x4_c(const uint8_t *src, int stride2, float *dst, float *mean)
 {
@@ -46,6 +50,74 @@ static void cast_pixels_general_c(const uint8_t *src, int stride2, int width, in
         for(int x=0; x<width; x++)
             *dst++ = (src[y*stride2*2+x] - bias) * scale;
 }
+
+static inline v4f haddps_x4(v4f x0, v4f x1, v4f x2, v4f x3)
+{
+    v4f ret;
+    asm("movaps   %1, %0 \n"
+        "unpcklps %3, %1 \n"
+        "unpckhps %3, %0 \n"
+        "addps    %1, %0 \n"
+        "movaps   %2, %1 \n"
+        "unpcklps %4, %2 \n"
+        "unpckhps %4, %1 \n"
+        "addps    %2, %1 \n"
+        "movaps   %0, %2 \n"
+        "movlhps  %1, %0 \n"
+        "movhlps  %2, %1 \n"
+        "addps    %1, %0 \n"
+        :"=&x"(ret), "+&x"(x0), "+&x"(x2)
+        :"x"(x1), "x"(x3)
+    );
+    return ret;
+}
+
+static inline v4f dotproduct_x4(const float *weights, const float *inputs, int n, int stride)
+{
+    // depends on the compiler to optimize away any unused accumulators when not x4
+    v4f in = *(v4f*)inputs;
+    v4f s0 = *(v4f*)weights * in;
+    v4f s1 = *(v4f*)(weights+stride) * in;
+    v4f s2 = *(v4f*)(weights+stride*2) * in;
+    v4f s3 = *(v4f*)(weights+stride*3) * in;
+    for(int i=4; i<n; i+=4) {
+        in = *(v4f*)(inputs+i);
+        s0 += *(v4f*)(weights+i) * in;
+        s1 += *(v4f*)(weights+i+stride) * in;
+        s2 += *(v4f*)(weights+i+stride*2) * in;
+        s3 += *(v4f*)(weights+i+stride*3) * in;
+    }
+    return haddps_x4(s0, s1, s2, s3);
+}
+
+static inline v4f sigmoid_x4(v4f x)
+{
+    v4f t = x;
+    asm("andps %3, %0 \n"
+        "addps %2, %0 \n"
+        "rcpps %0, %0 \n"
+        "mulps %1, %0 \n"
+        :"+&x"(x)
+        :"x"(t), "m"(ps_1), "m"(ps_abs)
+    );
+    return x;
+}
+
+static int test_net_c(const float *weights, const float *pix, float *unused)
+{
+    v4f tmp[3];
+    tmp[0] = sigmoid_x4(dotproduct_x4(weights, pix, 48, 48) + *(v4f*)(weights+48*4));
+    weights += 49*4;
+    tmp[1] = sigmoid_x4(dotproduct_x4(weights, tmp, 4, 4) + *(v4f*)(weights+4*4));
+    weights += 5*4;
+    tmp[2] = sigmoid_x4(dotproduct_x4(weights, tmp, 8, 8) + *(v4f*)(weights+8*4));
+    float *f = &tmp[2];
+    return fabsf(fmaxf(f[0],f[1])) > fabsf(fmaxf(f[2],f[3]));
+}
+
+
+
+void *dll = NULL;
 
 static int test_net(const float *weights, const float *pix, float *tmp)
 {
@@ -119,7 +191,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             ALIGNED_16(float ftmp[36]); // test uses 36, scale uses 32
             float mean, scale;
             cast_pixels_12x4_c(pix-3*tstride-5, tstride, fbuf, &mean);
-            int t = test_net(test_weights, fbuf, ftmp);
+            int t = test_net_c(test_weights, fbuf, ftmp);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
