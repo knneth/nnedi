@@ -1,4 +1,5 @@
 #include <dlfcn.h>
+#include <float.h>
 #include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,31 @@ static void cast_pixels_12x4_c(const uint8_t *src, int stride2, float *dst, floa
     for(int y=0; y<4; y++)
         for(int x=0; x<12; x++)
             *dst++ = (src[y*stride2*2+x] - bias) * (1/127.5f);
+}
+
+static void cast_pixels_general_c(const uint8_t *src, int stride2, int width, int height, float *mean, float *stddev, float *dst)
+{
+    int sum = 0, sum2 = 0;
+    for(int y=0; y<height; y++)
+        for(int x=0; x<width; x++) {
+            int v = src[y*stride2*2+x];
+            sum += v;
+            sum2 += v*v;
+        }
+    float norm = 1.f / (width*height);
+    float bias = *mean = sum*norm;
+    float var = sum2*norm - bias*bias;
+    float scale;
+    if(var > FLT_EPSILON) {
+        *stddev = sqrt(var);
+        scale = 1 / *stddev;
+    } else {
+        *stddev = 0;
+        scale = 0;
+    }
+    for(int y=0; y<height; y++)
+        for(int x=0; x<width; x++)
+            *dst++ = (src[y*stride2*2+x] - bias) * scale;
 }
 
 static int test_net(const float *weights, const float *pix, float *tmp)
@@ -97,7 +123,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
-                cast_pixels_general(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
+                cast_pixels_general_c(pix-5*tstride-3, tstride, 8, 6, &mean, &scale, fbuf);
                 float v = scale_net(48, 16, scale_weights, fbuf, ftmp, mean, scale);
                 *pix = av_clip_uint8(v+.5f);
             }
