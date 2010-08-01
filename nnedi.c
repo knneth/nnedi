@@ -214,18 +214,18 @@ static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float 
     for(int y=0; y<4; y++)
         for(int x=0; x<12; x++)
             sum += src[y*stride2*2+x];
-    float bias = *mean = sum * (1/48.f);
+    *mean = sum * (1/48.f);
+    v4f biasv = splatps(*mean);
     for(int y=0; y<4; y++)
         for(int x=0; x<12; x+=4, dst+=4) {
             asm("movd %1, %%xmm0 \n"
                 "pshufb %2, %%xmm0 \n"
                 "cvtdq2ps %%xmm0, %%xmm0 \n"
                 "subps %3, %%xmm0 \n"
-                "mulps %4, %%xmm0 \n"
                 "movaps %%xmm0, %0 \n"
                 :"=m"(*(v4f*)dst)
                 :"m"(src[y*stride2*2+x]),
-                 "x"(unpackbd_shuf), "x"(splatps(bias)), "x"(splatps(1/127.5f))
+                 "x"(unpackbd_shuf), "x"(biasv)
                 :"xmm0"
             );
         }
@@ -256,6 +256,15 @@ static void cast_pixels_general(const uint8_t *src, int stride2, int width, int 
             *dst++ = (src[y*stride2*2+x] - bias) * scale;
 }
 
+static void munge_test_weights(float *dst, const float *src)
+{
+    int i;
+    for(i=0; i<48*4; i++)
+        *dst++ = *src++ * (1/127.5f);
+    for(; i<252; i++)
+        *dst++ = *src++;
+}
+
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int twidth = width+11;
@@ -263,6 +272,8 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     int tstride = (twidth+15)&~15;
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
+    ALIGNED_16(float test_weights2[252]);
+    munge_test_weights(test_weights2, test_weights);
 
     // L/R mirroring ends up with only 1 copy of the last column.
     // T/B mirroring ends up with 2 copies of the last row.
@@ -285,7 +296,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             ALIGNED_16(float fbuf[48]);
             float mean, stddev;
             cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, &mean);
-            int t = test_net(test_weights, fbuf);
+            int t = test_net(test_weights2, fbuf);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
