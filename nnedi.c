@@ -276,17 +276,17 @@ static int test_net(const int16_t *weightsi, const float *weightsf, const int16_
     return ret;
 }
 
-static float scale_net(int ninputs, int nneurons, const float *weights, const float *pix, float invstddev)
+static float scale_net(int ninputs, int nneurons, const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
 {
-    ALIGNED_16(float tmp[128]);
-    const float *biases = weights+ninputs*nneurons*2;
+    v4f tmp[NNS/2];
+    const v4f *biases = (v4f*)weightsf;
     v4f scalev = splatps(invstddev);
-    for(int i=0; i<nneurons*2; i+=4, weights+=ninputs*4)
-        *(v4f*)(tmp+i) = dotproduct_x4(weights, pix, ninputs, ninputs) * scalev + *(v4f*)(biases+i);
-    softmax(tmp, nneurons);
-    for(int i=nneurons; i<nneurons*2; i+=4)
-        *(v4f*)(tmp+i) = sigmoid_x4(*(v4f*)(tmp+i));
-    return 5*weighted_average(tmp, tmp+nneurons, nneurons);
+    for(int i=0; i<nneurons/2; i++, weightsi+=ninputs*4)
+        *(v4f*)(tmp+i) = cvtdq2ps(dotproduct_x4i(weightsi, pix, ninputs, ninputs)) * scalev * biases[i*2] + biases[i*2+1];
+    softmax((float*)tmp, nneurons);
+    for(int i=nneurons/4; i<nneurons/2; i++)
+        tmp[i] = sigmoid_x4(tmp[i]);
+    return 5*weighted_average((float*)tmp, (float*)tmp+nneurons, nneurons);
 }
 
 static void shift_testblock(int16_t *pix)
@@ -312,7 +312,7 @@ static void shift_testblock(int16_t *pix)
     );
 }
 
-static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *invstddev, float *dst)
+static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
 {
     int sum = 0, sum2 = 0;
 #if 0
@@ -377,7 +377,6 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
     float norm = 1.f / (width*height);
     float bias = *mean = sum*norm;
     float var = sum2*norm - bias*bias;
-    float scale;
     if(var > FLT_EPSILON) {
         *invstddev = rsqrtss(var);
         *stddev = rcpss(*invstddev);
@@ -385,8 +384,13 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
         *invstddev = 0;
         *stddev = 0;
     }
+    for(int y=0; y<height; y++)
+        for(int x=0; x<width; x++, dst++)
+            *dst = src[y*stride+x]*16 - (sum+1)/3;
+    return;
+
     v4f biasv = splatps(bias);
-//  v4f scalev = splatps(scale);
+//  v4f scalev = splatps(*invstddev);
     for(int y=0; y<height; y++)
         for(int x=0; x<width; x+=4, dst+=4)
             asm("movd         %1, %%xmm0 \n"
@@ -402,6 +406,7 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
             );
 }
 
+// FIXME cap scaling factors so that intermediate sums don't overflow.
 static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
 {
     for(int j=0; j<4; j++, dsti+=48, src+=48) {
@@ -410,20 +415,31 @@ static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
         for(int i=0; i<48; i++)
             max = fmaxf(max, fabsf(src[i]));
         for(int i=0; i<48; i++)
-            sum += dsti[i] = src[(i>>2)+(i&3)*12]*0x3fff/max;
+            sum += dsti[i] = src[(i>>2)+(i&3)*12]*0x3fff/max; // FIXME 7fff, division
         dstf[j] = max/(0x3fff*127.5f);
         dstf[j+4] = sum*dstf[j];
     }
     memcpy(dstf+8, src, 60*sizeof(float));
 }
 
-static void munge_scale_weights(float *dst, const float *src)
+static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
 {
-    memcpy(dst, src, 49*2*NNS*sizeof(float));
-    for(int i=0; i<48*NNS; i++)
-        dst[i] *= M_LOG2E;
-    for(int i=96*NNS; i<97*NNS; i++)
-        dst[i] *= M_LOG2E;
+    float scale[2*NNS];
+    for(int j=0; j<2*NNS; j++, dsti+=48, src+=48) {
+        float max = 0;
+        for(int i=0; i<48; i++)
+            max = fmaxf(max, fabsf(src[i]));
+        for(int i=0; i<48; i++)
+            dsti[i] = src[i]*0x3fff/max;
+        scale[j] = max/(0x3fff*16);
+    }
+    for(int j=0; j<2*NNS; j+=4) {
+        memcpy(dstf+j*2, scale+j, 4*sizeof(float));
+        memcpy(dstf+j*2+4, src+j, 4*sizeof(float));
+        if(j<NNS)
+            for(int i=0; i<8; i++)
+                dstf[j*2+i] *= M_LOG2E;
+    }
 }
 
 static void block_sums(uint16_t *dst, uint8_t *src, int n, int width)
@@ -446,11 +462,13 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
     ALIGNED_16(int16_t test_weights_i[48*4]);
     ALIGNED_16(float test_weights_f[68]);
-    ALIGNED_16(float scale_weights2[49*2*NNS]);
+    ALIGNED_16(int16_t scale_weights_i[48*2*NNS]);
+    ALIGNED_16(float scale_weights_f[4*NNS]);
     ALIGNED_16(int16_t ibuf[48]);
-    ALIGNED_16(float fbuf[48]);
+    ALIGNED_16(int16_t ibuf2[48]);
     munge_test_weights(test_weights_i, test_weights_f, test_weights);
-    munge_scale_weights(scale_weights2, NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
+    munge_scale_weights(scale_weights_i, scale_weights_f,
+        NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
 
     // L/R mirroring ends up with only 1 copy of the last column.
     // T/B mirroring ends up with 2 copies of the last row.
@@ -485,8 +503,8 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
                 float stddev, invstddev;
-                cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, &invstddev, fbuf);
-                float v = scale_net(48, NNS, scale_weights2, fbuf, invstddev)*stddev+mean;
+                cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, &invstddev, ibuf2);
+                float v = scale_net(48, NNS, scale_weights_i, scale_weights_f, ibuf2, invstddev)*stddev+mean;
                 *pix = av_clip_uint8(v+.5f);
             }
         }
