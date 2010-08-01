@@ -9,6 +9,18 @@
 
 void *dll = NULL;
 
+static void cast_pixels_12x4_c(const uint8_t *src, int stride2, float *dst, float *mean)
+{
+    int sum = 0;
+    for(int y=0; y<4; y++)
+        for(int x=0; x<12; x++)
+            sum += src[y*stride2*2+x];
+    float bias = *mean = sum * (1/48.f);
+    for(int y=0; y<4; y++)
+        for(int x=0; x<12; x++)
+            *dst++ = (src[y*stride2*2+x] - bias) * (1/127.5f);
+}
+
 static int test_net(const float *weights, const float *pix, float *tmp)
 {
     int ret;
@@ -80,7 +92,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             ALIGNED_16(float fbuf[48]);
             ALIGNED_16(float ftmp[36]); // test uses 36, scale uses 32
             float mean, scale;
-            cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, &mean);
+            cast_pixels_12x4_c(pix-3*tstride-5, tstride, fbuf, &mean);
             int t = test_net(test_weights, fbuf, ftmp);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
