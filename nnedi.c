@@ -221,14 +221,9 @@ static float scale_net(int ninputs, int nneurons, const float *weights, const fl
     return 5*weighted_average(tmp, tmp+nneurons, nneurons);
 }
 
-static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float *mean)
+static void cast_pixels_12x4(const uint8_t *src, int stride2, float *dst, float mean)
 {
-    int sum = 0;
-    for(int y=0; y<4; y++)
-        for(int x=0; x<12; x++)
-            sum += src[y*stride2*2+x];
-    *mean = sum * (1/48.f);
-    v4f biasv = splatps(*mean);
+    v4f biasv = splatps(mean);
     for(int y=0; y<4; y++)
         for(int x=0; x<12; x+=4, dst+=4)
             asm("movd         %1, %%xmm0 \n"
@@ -296,6 +291,16 @@ static void munge_scale_weights(float *dst, const float *src)
         dst[i] *= M_LOG2E;
 }
 
+static void block_sums(uint16_t *dst, uint8_t *src, int n, int width)
+{
+    int sum = 0;
+    for(int i=0; i<width; i++)
+        sum += src[i];
+    dst[0] = sum;
+    for(int i=1; i<n; i++)
+        dst[i] = sum += src[i+width-1] - src[i-1];
+}
+
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int twidth = width+11;
@@ -303,6 +308,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     int tstride = (twidth+15)&~15;
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
+    uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
     ALIGNED_16(float test_weights2[252]);
     ALIGNED_16(float scale_weights2[49*2*NNS]);
     munge_test_weights(test_weights2, test_weights);
@@ -323,12 +329,16 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     for(int y=0; y<3; y++)
         memcpy(tpix+(height+y)*2*tstride-5, tpix+(height-1-y)*2*tstride-5, twidth);
     uint64_t t0 = read_time();
+    for(int y=0; y<3; y++)
+        block_sums(sum_w12+y*tstride, tpix+(y-1)*2*tstride-5, width, 12);
     for(int y=0; y<height; y++) {
+        block_sums(sum_w12+((y+3)&3)*tstride, tpix+(y+2)*2*tstride-5, width, 12);
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
             ALIGNED_16(float fbuf[48]);
-            float mean, stddev;
-            cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, &mean);
+            float mean = (sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3])*(1.f/48);
+            float stddev;
+            cast_pixels_12x4(pix-3*tstride-5, tstride, fbuf, mean);
             int t = test_net(test_weights2, fbuf);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
@@ -344,4 +354,5 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     for(int y=0; y<height*2; y++)
         memcpy(dst+y*dstride, tpix+y*tstride, width);
     free(tbuf);
+    free(sum_w12);
 }
