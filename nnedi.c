@@ -416,7 +416,7 @@ static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
         for(int i=0; i<48; i++)
             sum += dsti[i] = roundf(src[(i>>2)+(i&3)*12]*scale);
         dstf[j] = max/(0x3fff*127.5f);
-        dstf[j+4] = sum*dstf[j];
+        dstf[j+4] = sum*dstf[j]/48;
     }
     memcpy(dstf+8, src, 60*sizeof(float));
 }
@@ -494,7 +494,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
                 ibuf[j*4+i] = tpix[j-6+(y-1+i)*2*tstride];
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
-            float mean = (sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3])*(1.f/48);
+            float mean = sum_w12[x] + sum_w12[x+tstride] + sum_w12[x+tstride*2] + sum_w12[x+tstride*3];
             shift_testblock(ibuf);
             for(int i=0; i<4; i++)
                 ibuf[44+i] = pix[(2*i-3)*tstride+6];
