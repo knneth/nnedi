@@ -255,7 +255,7 @@ static int test_net(const int16_t *weightsi, const float *weightsf, const int16_
 {
     v4f tmp[2];
     const v4f *weightsv = (v4f*)weightsf;
-    tmp[0] = cvtdq2ps(dotproduct_x4i(weightsi, pix, 48, 48))*weightsv[0] - splatps(mean)*weightsv[1];
+    tmp[0] = cvtdq2ps(dotproduct_x4i(weightsi, pix, 32, 32))*weightsv[0] - splatps(mean)*weightsv[1];
     tmp[0] = sigmoid_x4(tmp[0] + weightsv[2]);
     tmp[1] = sigmoid_x4(dotproduct_x4(weightsf+12, (float*)tmp, 4, 4) + weightsv[7]);
     v4f x = sigmoid_x4(dotproduct_x4(weightsf+32, (float*)tmp, 8, 8) + weightsv[16]);
@@ -286,17 +286,11 @@ static float scale_net(int ninputs, int nneurons, const int16_t *weightsi, const
 
 static void shift_testblock(int16_t *pix)
 {
-    // memcpy(pix, pix+4, 44*sizeof(*pix));
-    asm("movdqa      80(%0), %%xmm5 \n"
-        "movdqa      64(%0), %%xmm4 \n"
-        "movdqa      48(%0), %%xmm3 \n"
+//  memcpy(pix, pix+4, 28*sizeof(*pix));
+    asm("movdqa      48(%0), %%xmm3 \n"
         "movdqa      32(%0), %%xmm2 \n"
         "movdqa      16(%0), %%xmm1 \n"
-        "movhps      %%xmm5, 80(%0) \n"
-        "palignr $8, %%xmm4, %%xmm5 \n"
-        "movdqa      %%xmm5, 64(%0) \n"
-        "palignr $8, %%xmm3, %%xmm4 \n"
-        "movdqa      %%xmm4, 48(%0) \n"
+        "movhps      %%xmm3, 48(%0) \n"
         "palignr $8, %%xmm2, %%xmm3 \n"
         "movdqa      %%xmm3, 32(%0) \n"
         "palignr $8, %%xmm1, %%xmm2 \n"
@@ -407,16 +401,16 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
 // FIXME cap scaling factors so that intermediate sums don't overflow; or allow 7fff if that works.
 static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
 {
-    for(int j=0; j<4; j++, dsti+=48, src+=48) {
+    for(int j=0; j<4; j++, src+=48) {
         float max = 0;
         int sum = 0;
-        for(int i=0; i<48; i++)
-            max = fmaxf(max, fabsf(src[i]));
+        for(int i=8; i<40; i++)
+            max = fmaxf(max, fabsf(src[(i>>2)+(i&3)*12]));
         float scale = 0x3fff/max;
-        for(int i=0; i<48; i++)
-            sum += dsti[i] = roundf(src[(i>>2)+(i&3)*12]*scale);
+        for(int i=8; i<40; i++)
+            sum += *dsti++ = roundf(src[(i>>2)+(i&3)*12]*scale);
         dstf[j] = max/(0x3fff*127.5f);
-        dstf[j+4] = sum*dstf[j]/48;
+        dstf[j+4] = sum*dstf[j]/32;
     }
     memcpy(dstf+8, src, 60*sizeof(float));
 }
@@ -470,18 +464,18 @@ static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int wi
 
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
-    int twidth = width+11;
+    int twidth = width+7;
     int theight = height*2+10;
     int tstride = (twidth+15)&~15;
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
-    uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
-    float *sum_12x4 = memalign(16, tstride*sizeof(float));
-    ALIGNED_16(int16_t test_weights_i[48*4]);
+    uint16_t *sum_w8 = memalign(16, 4*tstride*sizeof(uint16_t));
+    float *sum_8x4 = memalign(16, tstride*sizeof(float));
+    ALIGNED_16(int16_t test_weights_i[32*4]);
     ALIGNED_16(float test_weights_f[68]);
     ALIGNED_16(int16_t scale_weights_i[48*2*NNS]);
     ALIGNED_16(float scale_weights_f[4*NNS]);
-    ALIGNED_16(int16_t ibuf[48]);
+    ALIGNED_16(int16_t ibuf[32]);
     ALIGNED_16(int16_t ibuf2[48]);
     munge_test_weights(test_weights_i, test_weights_f, test_weights);
     munge_scale_weights(scale_weights_i, scale_weights_f,
@@ -492,29 +486,29 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     // this is inconsistent, but matches the way nnedi3 does it. (just for testing)
     for(int y=0; y<height; y++) {
         memcpy(tpix+y*2*tstride, src+av_clip(y,0,height-1)*sstride, width);
-        for(int x=1; x<=5; x++)
+        for(int x=1; x<=3; x++)
             tpix[y*2*tstride-x] = tpix[y*2*tstride+x];
-        for(int x=1; x<=6; x++)
+        for(int x=1; x<=4; x++)
             tpix[y*2*tstride+width-1+x] = tpix[y*2*tstride+width-1-x];
     }
     for(int y=0; y<2; y++)
-        memcpy(tpix-(y+1)*2*tstride-5, tpix+y*2*tstride-5, twidth);
+        memcpy(tpix-(y+1)*2*tstride-3, tpix+y*2*tstride-3, twidth);
     for(int y=0; y<3; y++)
-        memcpy(tpix+(height+y)*2*tstride-5, tpix+(height-1-y)*2*tstride-5, twidth);
+        memcpy(tpix+(height+y)*2*tstride-3, tpix+(height-1-y)*2*tstride-3, twidth);
     uint64_t t0 = read_time();
     for(int y=0; y<3; y++)
-        block_sums(NULL, sum_w12, tpix+(y-1)*2*tstride-5, width, 12, y+1, tstride);
+        block_sums(NULL, sum_w8, tpix+(y-1)*2*tstride-3, width, 8, y+1, tstride);
     for(int y=0; y<height; y++) {
-        block_sums(sum_12x4, sum_w12, tpix+(y+2)*2*tstride-5, width, 12, y&3, tstride);
+        block_sums(sum_8x4, sum_w8, tpix+(y+2)*2*tstride-3, width, 8, y&3, tstride);
         for(int i=0; i<4; i++)
-            for(int j=1; j<12; j++)
-                ibuf[j*4+i] = tpix[j-6+(y-1+i)*2*tstride];
+            for(int j=1; j<8; j++)
+                ibuf[j*4+i] = tpix[j-4+(y-1+i)*2*tstride];
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
             shift_testblock(ibuf);
             for(int i=0; i<4; i++)
-                ibuf[44+i] = pix[(2*i-3)*tstride+6];
-            int t = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[x]);
+                ibuf[28+i] = pix[(2*i-3)*tstride+4];
+            int t = test_net(test_weights_i, test_weights_f, ibuf, sum_8x4[x]);
             if(t) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
@@ -530,6 +524,6 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     for(int y=0; y<height*2; y++)
         memcpy(dst+y*dstride, tpix+y*tstride, width);
     free(tbuf);
-    free(sum_w12);
-    free(sum_12x4);
+    free(sum_w8);
+    free(sum_8x4);
 }
