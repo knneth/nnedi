@@ -284,9 +284,17 @@ static float scale_net(int ninputs, int nneurons, const int16_t *weightsi, const
     return 5*weighted_average((float*)tmp, (float*)tmp+nneurons, nneurons);
 }
 
-static void shift_testblock(int16_t *pix)
+static void init_testblock(int16_t *block, uint8_t *src, int stride)
 {
-    // memcpy(pix, pix+4, 44*sizeof(*pix));
+    for(int y=0; y<4; y++)
+        for(int x=2; x<12; x++)
+            block[x*4+y] = src[x+y*stride];
+}
+
+static void shift_testblock(int16_t *block, uint8_t *src, int stride)
+{
+    memcpy(block, block+8, 40*sizeof(*block));
+#if 0
     asm("movdqa      80(%0), %%xmm5 \n"
         "movdqa      64(%0), %%xmm4 \n"
         "movdqa      48(%0), %%xmm3 \n"
@@ -303,8 +311,20 @@ static void shift_testblock(int16_t *pix)
         "movdqa      %%xmm2, 16(%0) \n"
         "palignr $8,   (%0), %%xmm1 \n"
         "movdqa      %%xmm1,   (%0) \n"
-        ::"r"(pix)
+        ::"r"(block)
     );
+#endif
+    for(int i=0; i<4; i++) {
+        block[40+i] = src[i*stride];
+        block[44+i] = src[i*stride+1];
+    }
+}
+
+static void cast_pixels_test(const uint8_t *src, int stride, int16_t *dst)
+{
+    for(int y=0; y<4; y++)
+        for(int x=0; x<12; x++)
+            dst[x*4+y] = src[y*stride+x];
 }
 
 static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
@@ -468,6 +488,21 @@ static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int wi
             );
 }
 
+static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
+{
+    int nretest = 0;
+    uint8_t *row1offset = row1-1+2*parity;
+    for(int z=0; z<(n+1)/2; z++) {
+        dst[2*z] = row1[z];
+        dst[2*z+1] = row1[z];
+        // FIXME check that this is ok for odd width
+        if((row0[z] | row1[z] | row1offset[z] | row2[z]) !=
+           (row0[z] & row1[z] & row1offset[z] & row2[z]))
+            retest[nretest++] = 2*z+parity;
+    }
+    return nretest;
+}
+
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int twidth = width+11;
@@ -476,7 +511,12 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
     uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
-    float *sum_12x4 = memalign(16, tstride*sizeof(float));
+    float *sum_12x4[2] = { memalign(16, tstride*sizeof(float)), memalign(16, tstride*sizeof(float)) };
+    uint8_t *tested = memalign(16, 3*tstride/2+16);
+    uint8_t *tested2 = memalign(16, tstride);
+    uint16_t *retest = memalign(16, tstride/2*sizeof(uint16_t));
+    memset(tested, 0, 3*tstride/2+16); // FIXME not all needed
+    tested += 16;
     ALIGNED_16(int16_t test_weights_i[48*4]);
     ALIGNED_16(float test_weights_f[68]);
     ALIGNED_16(int16_t scale_weights_i[48*2*NNS]);
@@ -504,18 +544,28 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint64_t t0 = read_time();
     for(int y=0; y<3; y++)
         block_sums(NULL, sum_w12, tpix+(y-1)*2*tstride-5, width, 12, y+1, tstride);
-    for(int y=0; y<height; y++) {
-        block_sums(sum_12x4, sum_w12, tpix+(y+2)*2*tstride-5, width, 12, y&3, tstride);
-        for(int i=0; i<4; i++)
-            for(int j=1; j<12; j++)
-                ibuf[j*4+i] = tpix[j-6+(y-1+i)*2*tstride];
+    for(int y=0, testy=0; y<height; y++) {
+        for(; testy<=y+1 && testy<height; testy++) {
+            block_sums(sum_12x4[testy&1], sum_w12, tpix+(testy+2)*2*tstride-5, width, 12, testy&3, tstride);
+            uint8_t *pt = tested+(testy%3)*tstride/2;
+            int x = !(testy&1);
+            init_testblock(ibuf, tpix+(testy-1)*2*tstride+x-7, 2*tstride);
+            for(; x<width; x+=2) {
+                uint8_t *pix = tpix+(testy*2+1)*tstride+x;
+                shift_testblock(ibuf, pix-3*tstride+5, 2*tstride);
+                pt[x/2] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[testy&1][x]);
+            }
+            int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride/2, tested+y%3*tstride/2, tested+(y+1)%3*tstride/2, width, y&1);
+            uint8_t *pix = tpix+(y-1)*2*tstride-5;
+            for(int i=0; i<nretest; i++) {
+                int x = retest[i];
+                cast_pixels_test(pix+x, 2*tstride, ibuf);
+                tested2[x] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
+            }
+        }
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
-            shift_testblock(ibuf);
-            for(int i=0; i<4; i++)
-                ibuf[44+i] = pix[(2*i-3)*tstride+6];
-            int t = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[x]);
-            if(t) {
+            if(tested2[x]) {
                 *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
             } else {
                 float mean, stddev, invstddev;
@@ -531,5 +581,9 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
         memcpy(dst+y*dstride, tpix+y*tstride, width);
     free(tbuf);
     free(sum_w12);
-    free(sum_12x4);
+    free(sum_12x4[0]);
+    free(sum_12x4[1]);
+    free(tested-16);
+    free(tested2);
+    free(retest);
 }
