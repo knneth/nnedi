@@ -293,27 +293,19 @@ static void init_testblock(int16_t *block, uint8_t *src, int stride)
 
 static void shift_testblock(int16_t *block, uint8_t *src, int stride)
 {
-    memcpy(block, block+8, 40*sizeof(*block));
-#if 0
-    asm("movdqa      80(%0), %%xmm5 \n"
-        "movdqa      64(%0), %%xmm4 \n"
-        "movdqa      48(%0), %%xmm3 \n"
-        "movdqa      32(%0), %%xmm2 \n"
-        "movdqa      16(%0), %%xmm1 \n"
-        "movhps      %%xmm5, 80(%0) \n"
-        "palignr $8, %%xmm4, %%xmm5 \n"
-        "movdqa      %%xmm5, 64(%0) \n"
-        "palignr $8, %%xmm3, %%xmm4 \n"
-        "movdqa      %%xmm4, 48(%0) \n"
-        "palignr $8, %%xmm2, %%xmm3 \n"
-        "movdqa      %%xmm3, 32(%0) \n"
-        "palignr $8, %%xmm1, %%xmm2 \n"
-        "movdqa      %%xmm2, 16(%0) \n"
-        "palignr $8,   (%0), %%xmm1 \n"
-        "movdqa      %%xmm1,   (%0) \n"
+//  memcpy(block, block+8, 40*sizeof(*block));
+    asm("movdqa      16(%0), %%xmm0 \n"
+        "movdqa      32(%0), %%xmm1 \n"
+        "movdqa      48(%0), %%xmm2 \n"
+        "movdqa      64(%0), %%xmm3 \n"
+        "movdqa      80(%0), %%xmm4 \n"
+        "movdqa      %%xmm0,   (%0) \n"
+        "movdqa      %%xmm1, 16(%0) \n"
+        "movdqa      %%xmm2, 32(%0) \n"
+        "movdqa      %%xmm3, 48(%0) \n"
+        "movdqa      %%xmm4, 64(%0) \n"
         ::"r"(block)
     );
-#endif
     for(int i=0; i<4; i++) {
         block[40+i] = src[i*stride];
         block[44+i] = src[i*stride+1];
@@ -490,17 +482,73 @@ static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int wi
 
 static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
 {
-    int nretest = 0;
+    uint16_t *pretest = retest;
+    int n2 = (n+1)>>1;
+    int n32 = (n+31)>>5;
+    int n64 = (n+63)>>6;
+#if 0
     uint8_t *row1offset = row1-1+2*parity;
-    for(int z=0; z<(n+1)/2; z++) {
-        dst[2*z] = row1[z];
-        dst[2*z+1] = row1[z];
+    for(int x=0; x<n2; x++) {
+        dst[2*x] = row1[x];
+        dst[2*x+1] = row1[x];
         // FIXME check that this is ok for odd width
-        if((row0[z] | row1[z] | row1offset[z] | row2[z]) !=
-           (row0[z] & row1[z] & row1offset[z] & row2[z]))
-            retest[nretest++] = 2*z+parity;
+        int a = row0[x], b = row1[x], c = row2[x], d = row1offset[x];
+        if((a^b)|(b^c)|(c^d))
+            *pretest++ = 2*x+parity;
     }
-    return nretest;
+#else
+    uint16_t *masks = retest+n2-n32;
+#define MERGE(load_row1offset) {\
+        intptr_t x = -n2;\
+        asm("1: \n"\
+            "movdqa   (%3,%1), %%xmm0 \n"\
+            load_row1offset\
+            "movdqa   (%4,%1), %%xmm2 \n"\
+            "movdqa   (%5,%1), %%xmm3 \n"\
+            "pcmpeqb   %%xmm0, %%xmm1 \n"\
+            "pcmpeqb   %%xmm0, %%xmm2 \n"\
+            "pcmpeqb   %%xmm0, %%xmm3 \n"\
+            "pand      %%xmm2, %%xmm1 \n"\
+            "pand      %%xmm3, %%xmm1 \n"\
+            "movdqa    %%xmm0, %%xmm4 \n"\
+            "punpcklbw %%xmm0, %%xmm0 \n"\
+            "punpckhbw %%xmm4, %%xmm4 \n"\
+            "pmovmskb  %%xmm1,  %%eax \n"\
+            "movdqa    %%xmm0,   (%2,%1,2) \n"\
+            "movdqa    %%xmm4, 16(%2,%1,2) \n"\
+            "mov %%ax, (%0) \n"\
+            "add   $2,  %0 \n"\
+            "add  $16,  %1 \n"\
+            "jl 1b \n"\
+            :"+&r"(masks), "+&r"(x)\
+            :"r"(dst+n2*2), "r"(row1+n2), "r"(row0+n2), "r"(row2+n2)\
+            :"eax", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "memory"\
+        );\
+        masks -= n32;\
+    }
+    if(parity) {
+        MERGE("movdqa 16(%3,%1), %%xmm1 \n"
+              "palignr $1, %%xmm0, %%xmm1 \n");
+    } else {
+        MERGE("movdqa %%xmm0, %%xmm1 \n"
+              "palignr $15, -16(%3,%1), %%xmm1 \n");
+    }
+#undef MERGE
+    masks[n32] = 0xffff;
+    uint32_t *masks2 = (uint32_t*)masks;
+    for(int x=0; x<n64; x++) {
+        int x2 = x*64-2+parity;
+        uint32_t mask = ~masks2[x];
+        while(mask) {
+            int tz = __builtin_ctz(mask);
+            x2 += (tz+1)*2;
+            *pretest++ = x2;
+            mask >>= tz;
+            mask >>= 1;
+        }
+    }
+#endif
+    return pretest - retest;
 }
 
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
@@ -512,10 +560,10 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint8_t *tpix = tbuf + tstride*4 + 16;
     uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
     float *sum_12x4[2] = { memalign(16, tstride*sizeof(float)), memalign(16, tstride*sizeof(float)) };
-    uint8_t *tested = memalign(16, 3*tstride/2+16);
-    uint8_t *tested2 = memalign(16, tstride);
-    uint16_t *retest = memalign(16, tstride/2*sizeof(uint16_t));
-    memset(tested, 0, 3*tstride/2+16); // FIXME not all needed
+    uint8_t *tested = memalign(16, 3*tstride+16); // FIXME only needs stride=align(tstride/2+2)
+    uint8_t *tested2 = memalign(16, tstride+16);
+    uint16_t *retest = memalign(16, (tstride+16)/2*sizeof(uint16_t));
+    memset(tested, 0, 3*tstride+16); // FIXME not all needed
     tested += 16;
     ALIGNED_16(int16_t test_weights_i[48*4]);
     ALIGNED_16(float test_weights_f[68]);
@@ -547,7 +595,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     for(int y=0, testy=0; y<height; y++) {
         for(; testy<=y+1 && testy<height; testy++) {
             block_sums(sum_12x4[testy&1], sum_w12, tpix+(testy+2)*2*tstride-5, width, 12, testy&3, tstride);
-            uint8_t *pt = tested+(testy%3)*tstride/2;
+            uint8_t *pt = tested+(testy%3)*tstride;
             int x = !(testy&1);
             init_testblock(ibuf, tpix+(testy-1)*2*tstride+x-7, 2*tstride);
             for(; x<width; x+=2) {
@@ -555,7 +603,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
                 shift_testblock(ibuf, pix-3*tstride+5, 2*tstride);
                 pt[x/2] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[testy&1][x]);
             }
-            int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride/2, tested+y%3*tstride/2, tested+(y+1)%3*tstride/2, width, y&1);
+            int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
             uint8_t *pix = tpix+(y-1)*2*tstride-5;
             for(int i=0; i<nretest; i++) {
                 int x = retest[i];
