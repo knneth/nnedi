@@ -311,7 +311,7 @@ static void shift_testblock(int16_t *block, uint8_t *src, int stride)
     }
 }
 
-static void cast_pixels_test(const uint8_t *src, int stride, int16_t *dst)
+static void cast_pixels_test(const uint8_t *src, intptr_t stride, int16_t *dst)
 {
 //  for(int y=0; y<4; y++)
 //      for(int x=0; x<12; x++)
@@ -343,7 +343,7 @@ static void cast_pixels_test(const uint8_t *src, int stride, int16_t *dst)
 #undef ROW
 }
 
-static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
+static void cast_pixels_general(const uint8_t *src, intptr_t stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
 {
     int sum = 0, sum2 = 0;
 #if 0
@@ -478,7 +478,7 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     }
 }
 
-static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, int stride)
+static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
 {
     int sum = 0;
     for(int i=0; i<width; i++)
