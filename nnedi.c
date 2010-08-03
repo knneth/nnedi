@@ -576,6 +576,12 @@ static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, u
     return pretest - retest;
 }
 
+static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
+{
+    for(int x=0; x<n; x++)
+        dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*6-(src[x]+src[x+stride*3])+5)/10);
+}
+
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int twidth = width+11;
@@ -638,11 +644,10 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             cast_pixels_test(pix+x, 2*tstride, ibuf);
             tested2[x] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
         }
+        bicubic(tpix+(y*2+1)*tstride, tpix+(y*2-2)*tstride, tstride*2, width);
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
-            if(tested2[x]) {
-                *pix = av_clip_uint8(((pix[-tstride]+pix[tstride])*6-(pix[-tstride*3]+pix[tstride*3])+5)/10);
-            } else {
+            if(!tested2[x]) {
                 float mean, stddev, invstddev;
                 cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, &invstddev, ibuf2);
                 float v = scale_net(48, NNS, scale_weights_i, scale_weights_f, ibuf2, invstddev)*stddev+mean;
