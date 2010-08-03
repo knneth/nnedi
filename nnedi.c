@@ -316,7 +316,7 @@ static void cast_pixels_test(const uint8_t *src, int stride, int16_t *dst)
 {
     for(int y=0; y<4; y++)
         for(int x=0; x<12; x++)
-            dst[x*4+y] = src[y*stride+x];
+            dst[y*12+x] = src[y*stride+x];
 }
 
 static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
@@ -417,16 +417,16 @@ static void cast_pixels_general(const uint8_t *src, int stride, int width, int h
 }
 
 // FIXME cap scaling factors so that intermediate sums don't overflow; or allow 7fff if that works.
-static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
+static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src)
 {
-    for(int j=0; j<4; j++, dsti+=48, src+=48) {
+    for(int j=0; j<4; j++, src+=48, dsti+=48, dsti_transpose+=48) {
         float max = 0;
         int sum = 0;
         for(int i=0; i<48; i++)
             max = fmaxf(max, fabsf(src[i]));
         float scale = 0x3fff/max;
         for(int i=0; i<48; i++)
-            sum += dsti[i] = roundf(src[(i>>2)+(i&3)*12]*scale);
+            sum += dsti[i] = dsti_transpose[i/12+i%12*4] = roundf(src[i]*scale);
         dstf[j] = max/(0x3fff*127.5f);
         dstf[j+4] = sum*dstf[j]/48;
     }
@@ -436,7 +436,7 @@ static void munge_test_weights(int16_t *dsti, float *dstf, const float *src)
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
 {
     float scales[2*NNS];
-    for(int j=0; j<2*NNS; j++, dsti+=48, src+=48) {
+    for(int j=0; j<2*NNS; j++, src+=48, dsti+=48) {
         float max = 0;
         for(int i=0; i<48; i++)
             max = fmaxf(max, fabsf(src[i]));
@@ -566,12 +566,13 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     memset(tested, 0, 3*tstride+16); // FIXME not all needed
     tested += 16;
     ALIGNED_16(int16_t test_weights_i[48*4]);
+    ALIGNED_16(int16_t test_weights_i_transpose[48*4]);
     ALIGNED_16(float test_weights_f[68]);
     ALIGNED_16(int16_t scale_weights_i[48*2*NNS]);
     ALIGNED_16(float scale_weights_f[4*NNS]);
     ALIGNED_16(int16_t ibuf[48]);
     ALIGNED_16(int16_t ibuf2[48]);
-    munge_test_weights(test_weights_i, test_weights_f, test_weights);
+    munge_test_weights(test_weights_i, test_weights_i_transpose, test_weights_f, test_weights);
     munge_scale_weights(scale_weights_i, scale_weights_f,
         NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
 
@@ -601,7 +602,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             for(; x<width; x+=2) {
                 uint8_t *pix = tpix+(testy*2+1)*tstride+x;
                 shift_testblock(ibuf, pix-3*tstride+5, 2*tstride);
-                pt[x/2] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[testy&1][x]);
+                pt[x/2] = test_net(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
             }
             int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
             uint8_t *pix = tpix+(y-1)*2*tstride-5;
