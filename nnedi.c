@@ -314,9 +314,34 @@ static void shift_testblock(int16_t *block, uint8_t *src, int stride)
 
 static void cast_pixels_test(const uint8_t *src, int stride, int16_t *dst)
 {
-    for(int y=0; y<4; y++)
-        for(int x=0; x<12; x++)
-            dst[y*12+x] = src[y*stride+x];
+//  for(int y=0; y<4; y++)
+//      for(int x=0; x<12; x++)
+//          dst[y*12+x] = src[y*stride+x];
+
+#define ROW(dst, src0, src1)\
+        "movq      "src0", %%xmm0 \n"\
+        "movd    8+"src0", %%mm1 \n"\
+        "movd      "src1", %%mm2 \n"\
+        "movq    4+"src1", %%xmm3 \n"\
+        "punpcklbw %%xmm4, %%xmm0 \n"\
+        "punpcklbw  %%mm4, %%mm1 \n"\
+        "punpcklbw  %%mm4, %%mm2 \n"\
+        "punpcklbw %%xmm4, %%xmm3 \n"\
+        "movdqa %%xmm0,    "dst" \n"\
+        "movq    %%mm1, 16+"dst" \n"\
+        "movq    %%mm2, 24+"dst" \n"\
+        "movdqa %%xmm3, 32+"dst" \n"\
+
+    asm("pxor %%xmm4, %%xmm4 \n"
+        "pxor  %%mm4, %%mm4 \n"
+        ROW( "0(%1)", "0(%2)", "0(%2,%3)")
+        ROW("48(%1)", "0(%2,%3,2)", "0(%2,%4)")
+        "emms \n"
+        :"=m"(*(struct {int16_t x[48];}*)dst)
+        :"r"(dst), "r"(src), "r"(stride), "r"(stride*3)
+        :"xmm0", "mm1", "mm2", "xmm3"
+    );
+#undef ROW
 }
 
 static void cast_pixels_general(const uint8_t *src, int stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
