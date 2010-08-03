@@ -579,7 +579,8 @@ static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, u
 static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
 {
     for(int x=0; x<n; x++)
-        dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*6-(src[x]+src[x+stride*3])+5)/10);
+        dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
+
 }
 
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
