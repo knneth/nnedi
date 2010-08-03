@@ -630,6 +630,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
                 pt[x/2] = test_net(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
             }
         }
+        if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
         uint8_t *pix = tpix+(y-1)*2*tstride-5;
         for(int i=0; i<nretest; i++) {
