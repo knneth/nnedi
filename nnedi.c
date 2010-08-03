@@ -588,7 +588,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     uint8_t *tested = memalign(16, 3*tstride+16); // FIXME only needs stride=align(tstride/2+2)
     uint8_t *tested2 = memalign(16, tstride+16);
     uint16_t *retest = memalign(16, (tstride+16)/2*sizeof(uint16_t));
-    memset(tested, 0, 3*tstride+16); // FIXME not all needed
+    memset(tested, 0, 3*tstride+16);
     tested += 16;
     ALIGNED_16(int16_t test_weights_i[48*4]);
     ALIGNED_16(int16_t test_weights_i_transpose[48*4]);
@@ -629,13 +629,13 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
                 shift_testblock(ibuf, pix-3*tstride+5, 2*tstride);
                 pt[x/2] = test_net(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
             }
-            int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
-            uint8_t *pix = tpix+(y-1)*2*tstride-5;
-            for(int i=0; i<nretest; i++) {
-                int x = retest[i];
-                cast_pixels_test(pix+x, 2*tstride, ibuf);
-                tested2[x] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
-            }
+        }
+        int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
+        uint8_t *pix = tpix+(y-1)*2*tstride-5;
+        for(int i=0; i<nretest; i++) {
+            int x = retest[i];
+            cast_pixels_test(pix+x, 2*tstride, ibuf);
+            tested2[x] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
         }
         for(int x=0; x<width; x++) {
             uint8_t *pix = tpix+(y*2+1)*tstride+x;
