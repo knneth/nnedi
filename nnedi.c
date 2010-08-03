@@ -578,9 +578,43 @@ static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, u
 
 static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
 {
-    for(int x=0; x<n; x++)
-        dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
+//  for(int x=0; x<n; x++)
+//      dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
 
+    ALIGNED_16(static const int8_t coef[16]) = {38,-6,38,-6,38,-6,38,-6,38,-6,38,-6,38,-6,38,-6};
+    ALIGNED_16(static const int16_t round[8]) = {32,32,32,32,32,32,32,32};
+    intptr_t i = -n;
+    asm volatile(
+        "movdqa        %6, %%xmm6 \n"
+        "movdqa        %7, %%xmm7 \n"
+        "1: \n"
+        "movdqa   (%3,%0), %%xmm0 \n"
+        "movdqa   (%4,%0), %%xmm1 \n"
+        "movdqa    %%xmm0, %%xmm2 \n"
+        "movdqa    %%xmm1, %%xmm3 \n"
+        "punpcklbw (%2,%0),%%xmm0 \n"
+        "punpcklbw (%5,%0),%%xmm1 \n"
+        "punpckhbw (%2,%0),%%xmm2 \n"
+        "punpckhbw (%5,%0),%%xmm3 \n"
+        "pmaddubsw %%xmm6, %%xmm0 \n"
+        "pmaddubsw %%xmm6, %%xmm1 \n"
+        "pmaddubsw %%xmm6, %%xmm2 \n"
+        "pmaddubsw %%xmm6, %%xmm3 \n"
+        "paddw     %%xmm7, %%xmm0 \n"
+        "paddw     %%xmm7, %%xmm2 \n"
+        "paddw     %%xmm1, %%xmm0 \n"
+        "paddw     %%xmm3, %%xmm2 \n"
+        "psraw         $6, %%xmm0 \n"
+        "psraw         $6, %%xmm2 \n"
+        "packuswb  %%xmm2, %%xmm0 \n"
+        "movdqa    %%xmm0, (%1,%0) \n"
+        "add $16, %0 \n"
+        "jl 1b \n"
+        :"+&r"(i)
+        :"r"(dst+n), "r"(src+n), "r"(src+stride+n), "r"(src+stride*2+n), "r"(src+stride*3+n),
+         "m"(*coef), "m"(*round)
+        :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "memory"
+    );
 }
 
 void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
