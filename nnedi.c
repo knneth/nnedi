@@ -13,9 +13,6 @@ typedef float __attribute__((vector_size(16))) v4f;
 typedef int32_t __attribute__((vector_size(16))) v4si;
 typedef int16_t __attribute__((vector_size(16))) v8si;
 
-static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
-static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
-
 static inline v4si splatpi(int x)
 {
     return (v4si){x,x,x,x};
@@ -169,6 +166,8 @@ static inline v4si dotproduct_x4i(const int16_t *weights, const int16_t *inputs,
 
 static inline v4f sigmoid_x4(v4f x)
 {
+    static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
+    static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
     v4f t = x;
     asm("andps %3, %0 \n"
         "addps %2, %0 \n"
