@@ -270,17 +270,18 @@ static int test_net(const int16_t *weightsi, const float *weightsf, const int16_
     return ret;
 }
 
-static float scale_net(int ninputs, int nneurons, const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
+static float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
 {
+    const int ninputs = 48;
     v4f tmp[NNS/2];
     const v4f *biases = (v4f*)weightsf;
     v4f scalev = splatps(invstddev);
-    for(int i=0; i<nneurons/2; i++, weightsi+=ninputs*4)
+    for(int i=0; i<NNS/2; i++, weightsi+=ninputs*4)
         *(v4f*)(tmp+i) = cvtdq2ps(dotproduct_x4i(weightsi, pix, ninputs, ninputs)) * scalev * biases[i*2] + biases[i*2+1];
-    softmax((float*)tmp, nneurons);
-    for(int i=nneurons/4; i<nneurons/2; i++)
+    softmax((float*)tmp, NNS);
+    for(int i=NNS/4; i<NNS/2; i++)
         tmp[i] = sigmoid_x4(tmp[i]);
-    return 5*weighted_average((float*)tmp, (float*)tmp+nneurons, nneurons);
+    return 5*weighted_average((float*)tmp, (float*)tmp+NNS, NNS);
 }
 
 static void init_testblock(int16_t *block, uint8_t *src, int stride)
@@ -684,7 +685,7 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
             if(!tested2[x]) {
                 float mean, stddev, invstddev;
                 cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, &invstddev, ibuf2);
-                float v = scale_net(48, NNS, scale_weights_i, scale_weights_f, ibuf2, invstddev)*stddev+mean;
+                float v = scale_net(scale_weights_i, scale_weights_f, ibuf2, invstddev)*stddev+mean;
                 *pix = av_clip_uint8(v+.5f);
             }
         }
