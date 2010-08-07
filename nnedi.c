@@ -7,7 +7,7 @@
 #include <bench.h>
 #include "nnedi.h"
 
-#define NNS 64
+#define NNS 16
 
 typedef float __attribute__((vector_size(16))) v4f;
 typedef int32_t __attribute__((vector_size(16))) v4si;
