@@ -617,11 +617,95 @@ static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
     );
 }
 
+static void transpose8x8(uint8_t *dst, uint8_t *src, intptr_t dstride, intptr_t sstride)
+{
+#if 0
+    for(int x=0; x<8; x++)
+        for(int y=0; y<8; y++)
+            dst[x*dstride+y] = src[y*sstride+x];
+#else
+    asm("movq   (%4),      %%xmm0 \n"
+        "movq   (%4,%6),   %%xmm1 \n"
+        "movq   (%4,%6,2), %%xmm2 \n"
+        "movq   (%4,%7),   %%xmm3 \n"
+        "movhps (%5),      %%xmm0 \n"
+        "movhps (%5,%6),   %%xmm1 \n"
+        "movhps (%5,%6,2), %%xmm2 \n"
+        "movhps (%5,%7),   %%xmm3 \n"
+
+        "movdqa    %%xmm0, %%xmm4 \n"
+        "movdqa    %%xmm2, %%xmm5 \n"
+        "punpcklbw %%xmm1, %%xmm0 \n"
+        "punpckhbw %%xmm1, %%xmm4 \n"
+        "punpcklbw %%xmm3, %%xmm2 \n"
+        "punpckhbw %%xmm3, %%xmm5 \n"
+
+        "movdqa    %%xmm0, %%xmm1 \n"
+        "movdqa    %%xmm4, %%xmm3 \n"
+        "punpcklwd %%xmm2, %%xmm0 \n"
+        "punpckhwd %%xmm2, %%xmm1 \n"
+        "punpcklwd %%xmm5, %%xmm4 \n"
+        "punpckhwd %%xmm5, %%xmm3 \n"
+
+        "movdqa    %%xmm0, %%xmm2 \n"
+        "movdqa    %%xmm1, %%xmm5 \n"
+        "punpckldq %%xmm4, %%xmm0 \n"
+        "punpckhdq %%xmm4, %%xmm2 \n"
+        "punpckldq %%xmm3, %%xmm1 \n"
+        "punpckhdq %%xmm3, %%xmm5 \n"
+
+        "movq   %%xmm0, (%0)      \n"
+        "movhps %%xmm0, (%0,%2)   \n"
+        "movq   %%xmm2, (%0,%2,2) \n"
+        "movhps %%xmm2, (%0,%3)   \n"
+        "movq   %%xmm1, (%1)      \n"
+        "movhps %%xmm1, (%1,%2)   \n"
+        "movq   %%xmm5, (%1,%2,2) \n"
+        "movhps %%xmm5, (%1,%3)   \n"
+
+        ::"r"(dst), "r"(dst+dstride*4), "r"(dstride), "r"(dstride*3),
+          "r"(src), "r"(src+sstride*4), "r"(sstride), "r"(sstride*3)
+          // FIXME #regs
+    );
+#endif
+}
+
 static void transpose(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
+#if 0
     for(int x=0; x<width; x++)
         for(int y=0; y<height; y++)
             dst[x*dstride+y] = src[y*sstride+x];
+#elif 0
+    for(int x=0; x<width-7; x+=8)
+        for(int y=0; y<height-7; y+=8)
+            transpose8x8(dst+x*dstride+y, src+y*sstride+x, dstride, sstride);
+    for(int x=width&~7; x<width; x++)
+        for(int y=0; y<(height&~7); y++)
+            dst[x*dstride+y] = src[y*sstride+x];
+    for(int x=0; x<width; x++)
+        for(int y=height&~7; y<height; y++)
+            dst[x*dstride+y] = src[y*sstride+x];
+#else
+    for(int y=0; y<height-31; y+=32)
+        for(int x=0; x<width-7; x+=8) {
+            transpose8x8(dst+x*dstride+y+0, src+(y+0)*sstride+x, dstride, sstride);
+            transpose8x8(dst+x*dstride+y+8, src+(y+8)*sstride+x, dstride, sstride);
+            transpose8x8(dst+x*dstride+y+16, src+(y+16)*sstride+x, dstride, sstride);
+            transpose8x8(dst+x*dstride+y+24, src+(y+24)*sstride+x, dstride, sstride);
+        }
+    for(int y=height&~31; y<height-7; y+=8)
+        for(int x=0; x<width-7; x+=8)
+            transpose8x8(dst+x*dstride+y, src+y*sstride+x, dstride, sstride);
+    if(width&7)
+        for(int y=0; y<(height&~7); y++)
+            for(int x=width&~7; x<width; x++)
+                dst[x*dstride+y] = src[y*sstride+x];
+    if(height&7)
+        for(int x=0; x<width; x++)
+            for(int y=height&~7; y<height; y++)
+                dst[x*dstride+y] = src[y*sstride+x];
+#endif
 }
 
 static void pad_row(uint8_t *src, int width, int height, int stride, int y)
