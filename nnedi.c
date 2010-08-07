@@ -278,7 +278,7 @@ static float scale_net(const int16_t *weightsi, const float *weightsf, const int
     const v4f *biases = (v4f*)weightsf;
     v4f scalev = splatps(invstddev);
     for(int i=0; i<NNS/2; i++, weightsi+=ninputs*4)
-        *(v4f*)(tmp+i) = cvtdq2ps(dotproduct_x4i(weightsi, pix, ninputs, ninputs)) * scalev * biases[i*2] + biases[i*2+1];
+        tmp[i] = cvtdq2ps(dotproduct_x4i(weightsi, pix, ninputs, ninputs)) * scalev * biases[i*2] + biases[i*2+1];
     softmax((float*)tmp, NNS);
     for(int i=NNS/4; i<NNS/2; i++)
         tmp[i] = sigmoid_x4(tmp[i]);
@@ -474,10 +474,9 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     for(int j=0; j<2*NNS; j+=4) {
         memcpy(dstf+j*2, scales+j, 4*sizeof(float));
         memcpy(dstf+j*2+4, src+j, 4*sizeof(float));
-        if(j<NNS)
-            for(int i=0; i<8; i++)
-                dstf[j*2+i] *= M_LOG2E;
     }
+    for(int j=0; j<2*NNS; j++)
+        dstf[j] *= M_LOG2E;
 }
 
 static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
