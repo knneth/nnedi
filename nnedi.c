@@ -345,7 +345,7 @@ static void cast_pixels_test(const uint8_t *src, intptr_t stride, int16_t *dst)
 #undef ROW
 }
 
-static void cast_pixels_general(const uint8_t *src, intptr_t stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
+static void cast_pixels_scale(const uint8_t *src, intptr_t stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
 {
     int sum = 0, sum2 = 0;
 #if 0
@@ -607,7 +607,7 @@ static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
         "psraw         $6, %%xmm0 \n"
         "psraw         $6, %%xmm2 \n"
         "packuswb  %%xmm2, %%xmm0 \n"
-        "movdqa    %%xmm0, (%1,%0) \n"
+        "movdqu    %%xmm0, (%1,%0) \n" // FIXME alignment isn't guaranteed
         "add $16, %0 \n"
         "jl 1b \n"
         :"+&r"(i)
@@ -617,13 +617,32 @@ static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
     );
 }
 
+static void transpose(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+{
+    for(int x=0; x<width; x++)
+        for(int y=0; y<height; y++)
+            dst[x*dstride+y] = src[y*sstride+x];
+}
+
+static void pad_row(uint8_t *src, int width, int height, int stride, int y)
+{
+    // L/R mirroring ends up with only 1 copy of the last column.
+    // T/B mirroring ends up with 2 copies of the last row.
+    // this is inconsistent, but matches the way nnedi3 does it. (just for testing)
+    if(y<0)
+        memcpy(src+y*stride, src+(-y-1)*stride, width);
+    if(y>=height)
+        memcpy(src+y*stride, src+(2*height-1-y)*stride, width);
+    for(int x=1; x<=5; x++)
+        src[y*stride-x] = src[y*stride+x];
+    for(int x=1; x<=6; x++)
+        src[y*stride+width-1+x] = src[y*stride+width-1-x];
+}
+
 static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int twidth = width+11;
-    int theight = height*2+10;
     int tstride = ALIGN(twidth);
-    uint8_t *tbuf = memalign(16, tstride*theight+16);
-    uint8_t *tpix = tbuf + tstride*4 + 16;
     uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
     float *sum_12x4[2] = { memalign(16, tstride*sizeof(float)), memalign(16, tstride*sizeof(float)) };
     uint8_t *tested = memalign(16, 3*tstride+16); // FIXME only needs stride=align(tstride/2+2)
@@ -637,64 +656,50 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     ALIGNED_16(int16_t scale_weights_i[48*2*NNS]);
     ALIGNED_16(float scale_weights_f[4*NNS]);
     ALIGNED_16(int16_t ibuf[48]);
-    ALIGNED_16(int16_t ibuf2[48]);
     munge_test_weights(test_weights_i, test_weights_i_transpose, test_weights_f, test_weights);
     munge_scale_weights(scale_weights_i, scale_weights_f,
         NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
 
-    // L/R mirroring ends up with only 1 copy of the last column.
-    // T/B mirroring ends up with 2 copies of the last row.
-    // this is inconsistent, but matches the way nnedi3 does it. (just for testing)
-    for(int y=0; y<height; y++) {
-        memcpy(tpix+y*2*tstride, src+av_clip(y,0,height-1)*sstride, width);
-        for(int x=1; x<=5; x++)
-            tpix[y*2*tstride-x] = tpix[y*2*tstride+x];
-        for(int x=1; x<=6; x++)
-            tpix[y*2*tstride+width-1+x] = tpix[y*2*tstride+width-1-x];
-    }
-    for(int y=0; y<2; y++)
-        memcpy(tpix-(y+1)*2*tstride-5, tpix+y*2*tstride-5, twidth);
-    for(int y=0; y<3; y++)
-        memcpy(tpix+(height+y)*2*tstride-5, tpix+(height-1-y)*2*tstride-5, twidth);
+    for(int y=-2; y<3; y++)
+        pad_row(src, width, height, sstride, y);
     uint64_t t0 = read_time();
     for(int y=0; y<3; y++)
-        block_sums(NULL, sum_w12, tpix+(y-1)*2*tstride-5, width, 12, y+1, tstride);
+        block_sums(NULL, sum_w12, src+(y-1)*sstride-5, width, 12, y+1, tstride);
     for(int y=0, testy=0; y<height; y++) {
+        pad_row(src, width, height, sstride, y+3);
         for(; testy<=y+1 && testy<height; testy++) {
-            block_sums(sum_12x4[testy&1], sum_w12, tpix+(testy+2)*2*tstride-5, width, 12, testy&3, tstride);
+            block_sums(sum_12x4[testy&1], sum_w12, src+(testy+2)*sstride-5, width, 12, testy&3, tstride);
             uint8_t *pt = tested+(testy%3)*tstride;
+            uint8_t *pix = src+(testy-1)*sstride+5;
             int x = !(testy&1);
-            init_testblock(ibuf, tpix+(testy-1)*2*tstride+x-7, 2*tstride);
+            init_testblock(ibuf, pix+x-12, sstride);
             for(; x<width; x+=2) {
-                uint8_t *pix = tpix+(testy*2+1)*tstride+x;
-                shift_testblock(ibuf, pix-3*tstride+5, 2*tstride);
+                shift_testblock(ibuf, pix+x, sstride);
                 pt[x/2] = test_net(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
             }
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
-        uint8_t *pix = tpix+(y-1)*2*tstride-5;
+        uint8_t *pix = src+(y-1)*sstride-5;
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
-            cast_pixels_test(pix+x, 2*tstride, ibuf);
+            cast_pixels_test(pix+x, sstride, ibuf);
             tested2[x] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
         }
-        bicubic(tpix+(y*2+1)*tstride, tpix+(y*2-2)*tstride, tstride*2, width);
+        if(dst != src)
+            memcpy(dst+y*2*dstride, src+y*sstride, width);
+        bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
         for(int x=0; x<width; x++) {
-            uint8_t *pix = tpix+(y*2+1)*tstride+x;
             if(!tested2[x]) {
                 float mean, stddev, invstddev;
-                cast_pixels_general(pix-5*tstride-3, tstride*2, 8, 6, &mean, &stddev, &invstddev, ibuf2);
-                float v = scale_net(scale_weights_i, scale_weights_f, ibuf2, invstddev)*stddev+mean;
-                *pix = av_clip_uint8(v+.5f);
+                cast_pixels_scale(src+(y-2)*sstride+x-3, sstride, 8, 6, &mean, &stddev, &invstddev, ibuf);
+                float v = scale_net(scale_weights_i, scale_weights_f, ibuf, invstddev);
+                dst[(y*2+1)*dstride+x] = av_clip_uint8(v*stddev+mean+.5f);
             }
         }
     }
     uint64_t t1 = read_time();
     printf("%d Mcycles\n", (int)((t1-t0)/1000000));
-    for(int y=0; y<height*2; y++)
-        memcpy(dst+y*dstride, tpix+y*tstride, width);
-    free(tbuf);
     free(sum_w12);
     free(sum_12x4[0]);
     free(sum_12x4[1]);
@@ -707,25 +712,18 @@ void upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dstride, 
 {
     int h1 = width;
     int w1 = height;
-    int s1 = ALIGN(w1);
-    uint8_t *p1 = memalign(16, h1*s1);
-    for(int x=0; x<w1; x++)
-        for(int y=0; y<h1; y++)
-            p1[y*s1+x] = src[x*sstride+y];
-    int h2 = h1*2;
-    int w2 = w1;
-    int s2 = s1;
-    uint8_t *p2 = memalign(16, h2*s2);
-    upscale_v(p2, p1, w1, h1, s2, s1);
-    int h3 = w2;
-    int w3 = h2;
-    int s3 = ALIGN(w3);
-    uint8_t *p3 = memalign(16, h3*s3);
-    for(int x=0; x<w3; x++)
-        for(int y=0; y<h3; y++)
-            p3[y*s3+x] = p2[x*s2+y];
-    upscale_v(dst, p3, w3, h3, dstride, s3);
-    free(p1);
-    free(p2);
-    free(p3);
+    int s1 = ALIGN(w1+11)*2;
+    uint8_t *b1 = memalign(16, (h1+5)*s1+16);
+    uint8_t *p1 = b1+s1*2+16;
+    transpose(p1, src, width, height, s1, sstride);
+    upscale_v(p1, p1, w1, h1, s1/2, s1);
+    int h2 = w1;
+    int w2 = h1*2;
+    int s2 = ALIGN(w2+11);
+    uint8_t *b2 = memalign(16, (h2+5)*s2+16);
+    uint8_t *p2 = b2+s2*2+16;
+    transpose(p2, p1, h2, w2, s2, s1/2);
+    upscale_v(dst, p2, w2, h2, dstride, s2);
+    free(b1);
+    free(b2);
 }
