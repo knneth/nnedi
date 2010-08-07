@@ -270,6 +270,7 @@ static int test_net(const int16_t *weightsi, const float *weightsf, const int16_
     return ret;
 }
 
+__attribute__((noinline))
 static float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
 {
     const int ninputs = 48;
