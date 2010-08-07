@@ -617,11 +617,11 @@ static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
     );
 }
 
-void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int twidth = width+11;
     int theight = height*2+10;
-    int tstride = (twidth+15)&~15;
+    int tstride = ALIGN(twidth);
     uint8_t *tbuf = memalign(16, tstride*theight+16);
     uint8_t *tpix = tbuf + tstride*4 + 16;
     uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
@@ -701,4 +701,31 @@ void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, i
     free(tested-16);
     free(tested2);
     free(retest);
+}
+
+void upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+{
+    int h1 = width;
+    int w1 = height;
+    int s1 = ALIGN(w1);
+    uint8_t *p1 = memalign(16, h1*s1);
+    for(int x=0; x<w1; x++)
+        for(int y=0; y<h1; y++)
+            p1[y*s1+x] = src[x*sstride+y];
+    int h2 = h1*2;
+    int w2 = w1;
+    int s2 = s1;
+    uint8_t *p2 = memalign(16, h2*s2);
+    upscale_v(p2, p1, w1, h1, s2, s1);
+    int h3 = w2;
+    int w3 = h2;
+    int s3 = ALIGN(w3);
+    uint8_t *p3 = memalign(16, h3*s3);
+    for(int x=0; x<w3; x++)
+        for(int y=0; y<h3; y++)
+            p3[y*s3+x] = p2[x*s2+y];
+    upscale_v(dst, p3, w3, h3, dstride, s3);
+    free(p1);
+    free(p2);
+    free(p3);
 }
