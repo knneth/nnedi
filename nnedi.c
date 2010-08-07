@@ -710,17 +710,14 @@ static void transpose(uint8_t *dst, uint8_t *src, int width, int height, int dst
 
 static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 {
-    // L/R mirroring ends up with only 1 copy of the last column.
-    // T/B mirroring ends up with 2 copies of the last row.
-    // this is inconsistent, but matches the way nnedi3 does it. (just for testing)
     if(y<0)
-        memcpy(src+y*stride, src+(-y-1)*stride, width);
+        memcpy(src+y*stride, src+(-1-y)*stride, width);
     if(y>=height)
         memcpy(src+y*stride, src+(2*height-1-y)*stride, width);
     for(int x=1; x<=5; x++)
-        src[y*stride-x] = src[y*stride+x];
+        src[y*stride-x] = src[y*stride-1+x];
     for(int x=1; x<=6; x++)
-        src[y*stride+width-1+x] = src[y*stride+width-1-x];
+        src[y*stride+width-1+x] = src[y*stride+width-x];
 }
 
 static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
