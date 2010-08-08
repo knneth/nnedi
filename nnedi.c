@@ -313,7 +313,7 @@ static void shift_testblock(int16_t *block, uint8_t *src, int stride)
     }
 }
 
-static void cast_pixels_test(const uint8_t *src, intptr_t stride, int16_t *dst)
+static void cast_pixels_test(int16_t *dst, const uint8_t *src, intptr_t stride)
 {
 //  for(int y=0; y<4; y++)
 //      for(int x=0; x<12; x++)
@@ -345,12 +345,12 @@ static void cast_pixels_test(const uint8_t *src, intptr_t stride, int16_t *dst)
 #undef ROW
 }
 
-static void cast_pixels_scale(const uint8_t *src, intptr_t stride, int width, int height, float *mean, float *stddev, float *invstddev, int16_t *dst)
+static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean, float *stddev, float *invstddev)
 {
     int sum = 0, sum2 = 0;
 #if 0
-    for(int y=0; y<height; y++)
-        for(int x=0; x<width; x++) {
+    for(int y=0; y<6; y++)
+        for(int x=0; x<8; x++) {
             int v = src[y*stride+x];
             sum += v;
             sum2 += v*v;
@@ -407,9 +407,8 @@ static void cast_pixels_scale(const uint8_t *src, intptr_t stride, int width, in
         :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
     );
 #endif
-    float norm = 1.f / (width*height);
-    float bias = *mean = sum*norm;
-    float var = sum2*norm - bias*bias;
+    float bias = *mean = sum*(1/48.f);
+    float var = sum2*(1/48.f) - bias*bias;
     if(var > FLT_EPSILON) {
         *invstddev = rsqrtss(var);
         *stddev = rcpss(*invstddev);
@@ -778,7 +777,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         uint8_t *pix = src+(y-1)*sstride-5;
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
-            cast_pixels_test(pix+x, sstride, ibuf);
+            cast_pixels_test(ibuf, pix+x, sstride);
             tested2[x] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
         }
         if(dst != src)
@@ -787,7 +786,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         for(int x=0; x<width; x++) {
             if(!tested2[x]) {
                 float mean, stddev, invstddev;
-                cast_pixels_scale(src+(y-2)*sstride+x-3, sstride, 8, 6, &mean, &stddev, &invstddev, ibuf);
+                cast_pixels_scale(ibuf, src+(y-2)*sstride+x-3, sstride, &mean, &stddev, &invstddev);
                 float v = scale_net(scale_weights_i, scale_weights_f, ibuf, invstddev);
                 dst[(y*2+1)*dstride+x] = av_clip_uint8(v*stddev+mean+.5f);
             }
