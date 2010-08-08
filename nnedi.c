@@ -720,6 +720,20 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
         src[y*stride+width-1+x] = src[y*stride+width-x];
 }
 
+static struct {
+    int initted;
+} dsp;
+
+static void init_dsp(void)
+{
+    if(dsp.initted)
+        return;
+    dsp.initted = 1;
+    uint32_t cpu = 1;
+    if(getenv("noasm"))
+        cpu = 0;
+}
+
 static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int twidth = width+11;
@@ -791,6 +805,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
 
 void upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
+    init_dsp();
     int h1 = width;
     int w1 = height;
     int s1 = ALIGN(w1+11)*2;
