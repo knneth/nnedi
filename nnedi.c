@@ -719,6 +719,9 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
         src[y*stride+width-1+x] = src[y*stride+width-x];
 }
 
+
+float nnedi_scale_net_sse2(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev);
+
 static struct {
     int initted;
 } dsp;
@@ -787,7 +790,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             if(!tested2[x]) {
                 float mean, stddev, invstddev;
                 cast_pixels_scale(ibuf, src+(y-2)*sstride+x-3, sstride, &mean, &stddev, &invstddev);
-                float v = scale_net(scale_weights_i, scale_weights_f, ibuf, invstddev);
+                float v = nnedi_scale_net_sse2(scale_weights_i, scale_weights_f, ibuf, invstddev);
                 dst[(y*2+1)*dstride+x] = av_clip_uint8(v*stddev+mean+.5f);
             }
         }
