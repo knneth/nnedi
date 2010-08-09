@@ -46,30 +46,31 @@ INIT_XMM
 
 %define stride 48*2
 dotproduct_x4:
-    mov      r3, 16-stride
-    mova     m7, [r2-stride]
-    mova     m4, [r0-stride]
-    mova     m5, [r0]
-    mova     m6, [r0+stride]
+%assign i 0
+    mova     m7, [r2+i]
+    mova     m4, [r0+i]
+    mova     m5, [r0+i+stride]
+    mova     m6, [r0+i+stride*2]
     pmaddwd  m4, m7
     pmaddwd  m5, m7
     pmaddwd  m6, m7
-    pmaddwd  m7, [r0+stride*2]
-.loop:
-    mova     m3, [r2+r3]
-    mova     m0, [r0+r3]
-    mova     m1, [r0+r3+stride]
-    mova     m2, [r0+r3+stride*2]
+    pmaddwd  m7, [r0+i+stride*3]
+%rep 5
+%assign i i+16
+    mova     m3, [r2+i]
+    mova     m0, [r0+i]
+    mova     m1, [r0+i+stride]
+    mova     m2, [r0+i+stride*2]
     pmaddwd  m0, m3
     pmaddwd  m1, m3
     paddd    m4, m0
     pmaddwd  m2, m3
     paddd    m5, m1
-    pmaddwd  m3, [r0+r3+stride*3]
+    pmaddwd  m3, [r0+i+stride*3]
     paddd    m6, m2
     paddd    m7, m3
-    add      r3, 16
-    jl .loop
+%endrep
+    add      r0, stride*4
     HADDPI_X4 m0, m4, m5, m6, m7
     ret
 
@@ -98,8 +99,6 @@ cglobal scale_net_sse2, 3,4,8
     shufps   m0, m0, 0
     mova     invstddev, m0
 
-    add      r2, stride
-    add      r0, stride
 %assign i 0
 %rep NNS/2
     call dotproduct_x4
@@ -114,7 +113,6 @@ cglobal scale_net_sse2, 3,4,8
 %elif i<NNS
     maxps    m8, m0
 %endif
-    add      r0, stride*4
     add      r1, 8*4
 %assign i i+4
 %endrep
