@@ -49,46 +49,46 @@ cglobal dotproduct_x4
 %assign i -128
 %define j i+16
 %assign k 10
-    mova     m4, [r0+i]
-    mova     m5, [r0+i+stride]
-    mova     m6, [r0+i+stride*2]
-    mova     m7, [r0+i+stride*3]
-    pmaddwd  m4, m %+ k
-    mova     m0, [r0+j]
+    mova     m5, [r0+i]
+    mova     m6, [r0+i+stride]
+    mova     m7, [r0+i+stride*2]
+    mova     m8, [r0+i+stride*3]
     pmaddwd  m5, m %+ k
-    mova     m1, [r0+j+stride]
+    mova     m0, [r0+j]
     pmaddwd  m6, m %+ k
-    mova     m2, [r0+j+stride*2]
+    mova     m1, [r0+j+stride]
     pmaddwd  m7, m %+ k
+    mova     m2, [r0+j+stride*2]
+    pmaddwd  m8, m %+ k
     mova     m3, [r0+j+stride*3]
 %assign k k+1
     pmaddwd  m0, m %+ k
 %rep 4
 %assign i i+16
     pmaddwd  m1, m %+ k
-    paddd    m4, m0
+    paddd    m5, m0
     mova     m0, [r0+j]
     pmaddwd  m2, m %+ k
-    paddd    m5, m1
+    paddd    m6, m1
     mova     m1, [r0+j+stride]
     pmaddwd  m3, m %+ k
-    paddd    m6, m2
+    paddd    m7, m2
     mova     m2, [r0+j+stride*2]
 %assign k k+1
     pmaddwd  m0, m %+ k
-    paddd    m7, m3
+    paddd    m8, m3
     mova     m3, [r0+j+stride*3]
 %endrep
     pmaddwd  m1, m %+ k
-    paddd    m4, m0
+    paddd    m5, m0
     pmaddwd  m2, m %+ k
-    paddd    m5, m1
+    paddd    m6, m1
     mova     m3, [r0+j+stride*3]
     pmaddwd  m3, m %+ k
-    paddd    m6, m2
-    paddd    m7, m3
+    paddd    m7, m2
+    paddd    m8, m3
     add      r0, stride*4
-    HADDPI_X4 xmm0, m4, m5, m6, m7
+    HADDPI_X4 xmm0, m5, m6, m7, m8
     ret
 
 
@@ -136,18 +136,18 @@ cglobal scale_net_sse2, 3,4,8
     addps    m0, [r1+16]
     mova     [rsp+i*4], m0
 %if i==0
-    mova     m8, m0
+    mova     m9, m0
 %elif i<NNS
-    maxps    m8, m0
+    maxps    m9, m0
 %endif
     add      r1, 8*4
 %assign i i+4
 %endrep
 
-    movhlps  m7, m8
-    maxps    m7, m8
-    pshuflw  m8, m7, 0xe
-    maxss    m7, m8
+    movhlps  m7, m9
+    maxps    m7, m9
+    pshuflw  m9, m7, 0xe
+    maxss    m7, m9
     shufps   m7, m7, 0
 
     xorps    m6, m6 ; FIXME
