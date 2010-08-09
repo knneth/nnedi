@@ -46,32 +46,46 @@ INIT_XMM
 
 cglobal dotproduct_x4
 %define stride 48*2
+%define j i+16
 %assign i -128
     mova     m7, [r2+i]
     mova     m4, [r0+i]
     mova     m5, [r0+i+stride]
     mova     m6, [r0+i+stride*2]
     pmaddwd  m4, m7
+    mova     m3, [r2+j]
     pmaddwd  m5, m7
+    mova     m0, [r0+j]
     pmaddwd  m6, m7
+    mova     m1, [r0+j+stride]
     pmaddwd  m7, [r0+i+stride*3]
-%rep 5
-%assign i i+16
-    mova     m3, [r2+i]
-    mova     m0, [r0+i]
-    mova     m1, [r0+i+stride]
-    mova     m2, [r0+i+stride*2]
     pmaddwd  m0, m3
+    mova     m2, [r0+j+stride*2]
+%rep 4
+%assign i i+16
+    pmaddwd  m1, m3
+    paddd    m4, m0
+    mova     m0, [r2+j]
+    pmaddwd  m2, m3
+    paddd    m5, m1
+    mova     m1, [r0+j]
+    pmaddwd  m3, [r0+i+stride*3]
+    paddd    m6, m2
+    mova     m2, [r0+j+stride]
+    pmaddwd  m1, m0
+    paddd    m7, m3
+    mova     m3, [r0+j+stride*2]
+    SWAP 0,1,2,3
+%endrep
     pmaddwd  m1, m3
     paddd    m4, m0
     pmaddwd  m2, m3
     paddd    m5, m1
-    pmaddwd  m3, [r0+i+stride*3]
+    pmaddwd  m3, [r0+j+stride*3]
     paddd    m6, m2
     paddd    m7, m3
-%endrep
     add      r0, stride*4
-    HADDPI_X4 m0, m4, m5, m6, m7
+    HADDPI_X4 xmm0, m4, m5, m6, m7
     ret
 
 
