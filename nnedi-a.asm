@@ -46,7 +46,7 @@ INIT_XMM
 
 %define stride 48*2
 dotproduct_x4:
-%assign i 0
+%assign i -128
     mova     m7, [r2+i]
     mova     m4, [r0+i]
     mova     m5, [r0+i+stride]
@@ -99,6 +99,8 @@ cglobal scale_net_sse2, 3,4,8
     shufps   m0, m0, 0
     mova     invstddev, m0
 
+    add      r0, 128
+    add      r2, 128
 %assign i 0
 %rep NNS/2
     call dotproduct_x4
