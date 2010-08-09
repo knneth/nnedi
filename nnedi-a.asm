@@ -50,80 +50,80 @@ cglobal dotproduct_x4
 %define w1 r0-128+stride
 %define w2 r0-128+stride*2
 %define w3 r0-128+stride*3
-    mova     m0, [w0+0x00]
-    mova     m1, [w0+0x10]
-    mova     m2, [w0+0x20]
-    mova     m3, [w0+0x30]
-    mova     m4, [w0+0x40]
-    mova     m5, [w0+0x50]
-    pmaddwd  m0, m10
-    pmaddwd  m1, m11
-    pmaddwd  m2, m12
-    pmaddwd  m3, m13
-    pmaddwd  m4, m14
-    pmaddwd  m5, m15
-    paddd    m0, m1
-    paddd    m0, m2
-    paddd    m0, m3
-    paddd    m0, m4
-    paddd    m0, m5
-    mova     m6, m0
-    mova     m0, [w1+0x00]
-    mova     m1, [w1+0x10]
-    mova     m2, [w1+0x20]
-    mova     m3, [w1+0x30]
-    mova     m4, [w1+0x40]
-    mova     m5, [w1+0x50]
-    pmaddwd  m0, m10
-    pmaddwd  m1, m11
-    pmaddwd  m2, m12
-    pmaddwd  m3, m13
-    pmaddwd  m4, m14
-    pmaddwd  m5, m15
-    paddd    m0, m1
-    paddd    m0, m2
-    paddd    m0, m3
-    paddd    m0, m4
-    paddd    m0, m5
-    mova     m7, m0
-    mova     m0, [w2+0x00]
-    mova     m1, [w2+0x10]
-    mova     m2, [w2+0x20]
-    mova     m3, [w2+0x30]
-    mova     m4, [w2+0x40]
-    mova     m5, [w2+0x50]
-    pmaddwd  m0, m10
-    pmaddwd  m1, m11
-    pmaddwd  m2, m12
-    pmaddwd  m3, m13
-    pmaddwd  m4, m14
-    pmaddwd  m5, m15
-    paddd    m0, m1
-    paddd    m0, m2
-    paddd    m0, m3
-    paddd    m0, m4
-    paddd    m0, m5
-    mova     m8, m0
-    mova     m0, [w3+0x00]
-    mova     m1, [w3+0x10]
-    mova     m2, [w3+0x20]
-    mova     m3, [w3+0x30]
-    mova     m4, [w3+0x40]
-    mova     m5, [w3+0x50]
-    pmaddwd  m0, m10
-    pmaddwd  m1, m11
-    pmaddwd  m2, m12
-    pmaddwd  m3, m13
-    pmaddwd  m4, m14
-    pmaddwd  m5, m15
-    paddd    m0, m1
-    paddd    m0, m2
-    paddd    m0, m3
-    paddd    m0, m4
-    paddd    m0, m5
-    mova     m5, m0
+
+%macro LOAD 1
+    %assign %%n %1 ; turn arg into a literal number so that it can be used in names
+    %ifndef used1
+        %xdefine %%i 1
+    %elifndef used2
+        %xdefine %%i 2
+    %elifndef used3
+        %xdefine %%i 3
+    %elifndef used4
+        %xdefine %%i 4
+    %elifndef used5
+        %xdefine %%i 5
+    %elifndef used6
+        %xdefine %%i 6
+    %elifndef used7
+        %xdefine %%i 7
+    %elifndef used0
+        %xdefine %%i 0
+    %elifndef used8
+        %xdefine %%i 8
+    %else
+        %error dotproduct register allocation failed
+    %endif
+    mova     m %+ %%i, [w0+%%n*16]
+    CAT_XDEFINE tmp, %%n, %%i
+    CAT_XDEFINE used, %%i, 1
+%endmacro
+
+%macro MULL 1
+    %assign  %%n %1
+    %assign  %%j 10 + (%%n % 6)
+    %xdefine %%i tmp %+ %%n
+    pmaddwd  m %+ %%i, m %+ %%j
+%endmacro
+
+%macro ACC 1
+    %assign  %%n %1
+    %assign  %%j %%n/6*6
+    %xdefine %%i tmp %+ %%n
+    %xdefine %%k acc %+ %%j
+    %if %%n % 6
+        paddd m %+ %%k, m %+ %%i
+        CAT_UNDEF used, %%i
+    %else
+        CAT_XDEFINE acc, %%n, %%i
+    %endif
+    CAT_UNDEF tmp, %%n
+%endmacro
+
+%assign i 0
+%rep 4
+    LOAD i+0
+    LOAD i+1
+    LOAD i+2
+    LOAD i+3
+    LOAD i+4
+    LOAD i+5
+    MULL i+0
+    MULL i+1
+    MULL i+2
+    MULL i+3
+    MULL i+4
+    MULL i+5
+    ACC  i+0
+    ACC  i+1
+    ACC  i+2
+    ACC  i+3
+    ACC  i+4
+    ACC  i+5
+%assign i i+6
+%endrep
     add      r0, stride*4
-    HADDPI_X4 xmm0, m6, m7, m8, m5
+    HADDPI_X4 m0, m1, m2, m3, m4
     ret
 
 
