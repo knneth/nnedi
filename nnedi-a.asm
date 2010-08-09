@@ -10,6 +10,13 @@ ps_1:        times 4 dd 1.0
 ps_abs:      times 4 dd 0x7fffffff
 ss_5:        dd 5.0
 
+%define m_exp_bias m10
+%define m_exp_c0   m11
+%define m_exp_c1   m12
+%define m_exp_c2   m13
+%define m_1        m14
+%define m_abs      m15
+
 SECTION .text
 INIT_XMM
 
@@ -37,8 +44,8 @@ INIT_XMM
 
 %macro SIGMOID 2 ; dst, tmp
     movaps   %2, %1
-    andps    %1, [ps_abs]
-    addps    %1, [ps_1]
+    andps    %1, m_abs
+    addps    %1, m_1
     rcpps    %1, %1
     mulps    %1, %2
 %endmacro
@@ -124,21 +131,21 @@ cglobal dotproduct_x4
     ret
 
 
-cglobal exp2_x4
+%macro EXP2 0
     movaps   m1, m0
-    addps    m0, [ps_exp_bias]
+    addps    m0, m_exp_bias
     movaps   m2, m0
-    subps    m0, [ps_exp_bias]
+    subps    m0, m_exp_bias
     pslld    m2, 23
     subps    m1, m0
     movaps   m0, m1
     mulps    m1, m1
-    mulps    m0, [ps_exp_c1]
-    mulps    m1, [ps_exp_c2]
-    addps    m0, [ps_exp_c0]
+    mulps    m0, m_exp_c1
+    mulps    m1, m_exp_c2
+    addps    m0, m_exp_c0
     addps    m0, m1
     paddd    m0, m2
-    ret
+%endmacro
 
 
 ; float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
@@ -182,13 +189,20 @@ cglobal scale_net_sse2, 3,4,8
     maxss    m7, m9
     shufps   m7, m7, 0
 
+    mova     m_exp_bias, [ps_exp_bias]
+    mova     m_exp_c0,   [ps_exp_c0]
+    mova     m_exp_c1,   [ps_exp_c1]
+    mova     m_exp_c2,   [ps_exp_c2]
+    mova     m_1,        [ps_1]
+    mova     m_abs,      [ps_abs]
+
     xorps    m6, m6 ; FIXME
     xorps    m5, m5 ; FIXME
 %assign i 0
 %rep NNS/4
     mova     m0, [rsp+i*4]
     subps    m0, m7
-    call exp2_x4
+    EXP2
     mova     m1, [rsp+i*4+NNS*4]
     SIGMOID  m1, m2
     mulps    m1, m0
