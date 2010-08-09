@@ -162,9 +162,16 @@ cglobal scale_net_sse2, 3,4,8
 %assign i 0
 %rep NNS/2
     call dotproduct_x4
+    mova     [rsp+i*4], m0
+%assign i i+4
+%endrep
+
+    mova     m7, invstddev
+%assign i 0
+%rep NNS/2
     mova     m1, [r1]
-    cvtdq2ps m0, m0
-    mulps    m1, invstddev
+    cvtdq2ps m0, [rsp+i*4]
+    mulps    m1, m7
     mulps    m0, m1 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
     addps    m0, [r1+16]
     mova     [rsp+i*4], m0
