@@ -46,20 +46,22 @@ INIT_XMM
 
 cglobal dotproduct_x4
 %define stride 48*2
-%define j i+16
 %assign i -128
+%define j i+16
+%assign k 10
     mova     m4, [r0+i]
     mova     m5, [r0+i+stride]
     mova     m6, [r0+i+stride*2]
     mova     m7, [r0+i+stride*3]
-    pmaddwd  m4, m10
+    pmaddwd  m4, m %+ k
     mova     m3, [r2+j]
-    pmaddwd  m5, m10
+    pmaddwd  m5, m %+ k
     mova     m0, [r0+j]
-    pmaddwd  m6, m10
+    pmaddwd  m6, m %+ k
     mova     m1, [r0+j+stride]
-    pmaddwd  m7, m10
-    pmaddwd  m0, m3
+    pmaddwd  m7, m %+ k
+%assign k k+1
+    pmaddwd  m0, m %+ k
     mova     m2, [r0+j+stride*2]
 %rep 4
 %assign i i+16
