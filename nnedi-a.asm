@@ -62,18 +62,16 @@ cglobal dotproduct_x4
         %xdefine %%i 2
     %elifndef used3
         %xdefine %%i 3
+    %elifndef used8
+        %xdefine %%i 8
     %elifndef used4
         %xdefine %%i 4
     %elifndef used5
         %xdefine %%i 5
     %elifndef used6
         %xdefine %%i 6
-    %elifndef used7
-        %xdefine %%i 7
     %elifndef used0
         %xdefine %%i 0
-    %elifndef used8
-        %xdefine %%i 8
     %else
         %error dotproduct register allocation failed
     %endif
