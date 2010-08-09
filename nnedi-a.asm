@@ -44,10 +44,6 @@ INIT_XMM
 %endmacro
 
 
-cglobal dotproduct_x4
-%define stride 48*2
-%assign offset 128
-
 %macro NOP_PAD 0
     times (($-$$)&15)/14 nop
     times (($-$$)&15)/15 nop
@@ -107,6 +103,9 @@ cglobal dotproduct_x4
     CAT_UNDEF tmp, %%n
 %endmacro
 
+cglobal dotproduct_x4
+%define stride 48*2
+%assign offset 128
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_MUL  0
@@ -122,6 +121,9 @@ cglobal dotproduct_x4
     DOTP_ACC  23
     add      r0, stride*4+128-offset
     HADDPI_X4 m0, m %+ acc0, m %+ acc1, m %+ acc2, m %+ acc3
+    mova [rsp+8+NNS*8+r2], m0
+    add      r2, 16
+    jl dotproduct_x4
     ret
 
 
@@ -158,13 +160,8 @@ cglobal scale_net_sse2, 3,4,8
     mova     m15, [r2+0x50]
 
     add      r0, 128
-    add      r2, 128
-%assign i 0
-%rep NNS/2
+    mov      r2, -NNS*8
     call dotproduct_x4
-    mova     [rsp+i*4], m0
-%assign i i+4
-%endrep
 
     mova     m7, invstddev
 %assign i 0
