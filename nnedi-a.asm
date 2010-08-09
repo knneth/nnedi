@@ -60,24 +60,24 @@ cglobal dotproduct_x4
     pmaddwd  m6, m %+ k
     mova     m2, [r0+j+stride*2]
     pmaddwd  m7, m %+ k
+    mova     m3, [r0+j+stride*3]
 %assign k k+1
     pmaddwd  m0, m %+ k
 %rep 4
 %assign i i+16
     pmaddwd  m1, m %+ k
     paddd    m4, m0
+    mova     m0, [r0+j]
     pmaddwd  m2, m %+ k
     paddd    m5, m1
-    mova     m1, [r0+j]
-    mova     m3, [r0+i+stride*3]
+    mova     m1, [r0+j+stride]
     pmaddwd  m3, m %+ k
     paddd    m6, m2
-    mova     m2, [r0+j+stride]
+    mova     m2, [r0+j+stride*2]
 %assign k k+1
-    pmaddwd  m1, m %+ k
+    pmaddwd  m0, m %+ k
     paddd    m7, m3
-    mova     m3, [r0+j+stride*2]
-    SWAP 0,1,2,3
+    mova     m3, [r0+j+stride*3]
 %endrep
     pmaddwd  m1, m %+ k
     paddd    m4, m0
