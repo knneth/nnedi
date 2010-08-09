@@ -48,7 +48,13 @@ cglobal dotproduct_x4
 %define stride 48*2
 %assign offset 128
 
+%macro NOP_PAD 0
+    times (($-$$)&15)/14 nop
+    times (($-$$)&15)/15 nop
+%endmacro
+
 %macro DOTP_LOAD 1
+    NOP_PAD
     %assign %%n %1 ; turn arg into a literal number so that it can be used in names
     %ifndef used1
         %xdefine %%i 1
@@ -81,6 +87,7 @@ cglobal dotproduct_x4
 %endmacro
 
 %macro DOTP_MUL  1
+    NOP_PAD
     %assign  %%n %1
     %assign  %%j 10 + (%%n % 6)
     %xdefine %%i tmp %+ %%n
@@ -88,6 +95,7 @@ cglobal dotproduct_x4
 %endmacro
 
 %macro DOTP_ACC 1
+    NOP_PAD
     %assign  %%n %1
     %assign  %%j %%n/6
     %xdefine %%i tmp %+ %%n
