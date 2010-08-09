@@ -113,8 +113,8 @@ cglobal dotproduct_x4
 %assign i 0
 %rep 22
     DOTP_LOAD i+2
-    DOTP_MUL  i+1
     DOTP_ACC  i+0
+    DOTP_MUL  i+1
 %assign i i+1
 %endrep
     DOTP_MUL  23
