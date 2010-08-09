@@ -48,17 +48,17 @@ cglobal dotproduct_x4
 %define stride 48*2
 %define j i+16
 %assign i -128
-    mova     m7, [r2+i]
     mova     m4, [r0+i]
     mova     m5, [r0+i+stride]
     mova     m6, [r0+i+stride*2]
-    pmaddwd  m4, m7
+    mova     m7, [r0+i+stride*3]
+    pmaddwd  m4, m10
     mova     m3, [r2+j]
-    pmaddwd  m5, m7
+    pmaddwd  m5, m10
     mova     m0, [r0+j]
-    pmaddwd  m6, m7
+    pmaddwd  m6, m10
     mova     m1, [r0+j+stride]
-    pmaddwd  m7, [r0+i+stride*3]
+    pmaddwd  m7, m10
     pmaddwd  m0, m3
     mova     m2, [r0+j+stride*2]
 %rep 4
@@ -112,6 +112,14 @@ cglobal scale_net_sse2, 3,4,8
 %define invstddev [rsp+NNS*8]
     shufps   m0, m0, 0
     mova     invstddev, m0
+
+    ; load all the pixels into regs, where they will stay throughout the dotproduct pass
+    mova     m10, [r2+0x00]
+    mova     m11, [r2+0x10]
+    mova     m12, [r2+0x20]
+    mova     m13, [r2+0x30]
+    mova     m14, [r2+0x40]
+    mova     m15, [r2+0x50]
 
     add      r0, 128
     add      r2, 128
