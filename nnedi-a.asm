@@ -48,7 +48,7 @@ cglobal dotproduct_x4
 %define stride 48*2
 %assign offset 128
 
-%macro LOAD 1
+%macro DOTP_LOAD 1
     %assign %%n %1 ; turn arg into a literal number so that it can be used in names
     %ifndef used1
         %xdefine %%i 1
@@ -80,14 +80,14 @@ cglobal dotproduct_x4
     CAT_XDEFINE used, %%i, 1
 %endmacro
 
-%macro MULL 1
+%macro DOTP_MUL  1
     %assign  %%n %1
     %assign  %%j 10 + (%%n % 6)
     %xdefine %%i tmp %+ %%n
     pmaddwd  m %+ %%i, m %+ %%j
 %endmacro
 
-%macro ACC 1
+%macro DOTP_ACC 1
     %assign  %%n %1
     %assign  %%j %%n/6*6
     %xdefine %%i tmp %+ %%n
@@ -103,24 +103,24 @@ cglobal dotproduct_x4
 
 %assign i 0
 %rep 4
-    LOAD i+0
-    LOAD i+1
-    LOAD i+2
-    LOAD i+3
-    LOAD i+4
-    LOAD i+5
-    MULL i+0
-    MULL i+1
-    MULL i+2
-    MULL i+3
-    MULL i+4
-    MULL i+5
-    ACC  i+0
-    ACC  i+1
-    ACC  i+2
-    ACC  i+3
-    ACC  i+4
-    ACC  i+5
+    DOTP_LOAD i+0
+    DOTP_LOAD i+1
+    DOTP_LOAD i+2
+    DOTP_LOAD i+3
+    DOTP_LOAD i+4
+    DOTP_LOAD i+5
+    DOTP_MUL  i+0
+    DOTP_MUL  i+1
+    DOTP_MUL  i+2
+    DOTP_MUL  i+3
+    DOTP_MUL  i+4
+    DOTP_MUL  i+5
+    DOTP_ACC  i+0
+    DOTP_ACC  i+1
+    DOTP_ACC  i+2
+    DOTP_ACC  i+3
+    DOTP_ACC  i+4
+    DOTP_ACC  i+5
 %assign i i+6
 %endrep
     add      r0, stride*4+128-offset
