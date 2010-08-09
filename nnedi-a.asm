@@ -35,29 +35,37 @@ INIT_XMM
     paddd      %1, %4
 %endmacro
 
+%macro SIGMOID 2 ; dst, tmp
+    movaps   %2, %1
+    andps    %1, [ps_abs]
+    addps    %1, [ps_1]
+    rcpps    %1, %1
+    mulps    %1, %2
+%endmacro
+
 
 %define stride 48*2
 dotproduct_x4:
-    mova     m4, [r2-stride]
-    mova     m5, m4
-    mova     m6, m4
-    mova     m7, m4
-    pmaddwd  m4, [r0-stride]
-    pmaddwd  m5, [r0]
-    pmaddwd  m6, [r0+stride]
-    pmaddwd  m7, [r0+stride*2]
     mov      r3, 16-stride
+    mova     m7, [r2-stride]
+    mova     m4, [r0-stride]
+    mova     m5, [r0]
+    mova     m6, [r0+stride]
+    pmaddwd  m4, m7
+    pmaddwd  m5, m7
+    pmaddwd  m6, m7
+    pmaddwd  m7, [r0+stride*2]
 .loop:
-    mova     m0, [r2+r3]
-    mova     m1, m0
-    mova     m2, m0
-    mova     m3, m0
-    pmaddwd  m0, [r0+r3]
-    pmaddwd  m1, [r0+r3+stride]
-    pmaddwd  m2, [r0+r3+stride*2]
-    pmaddwd  m3, [r0+r3+stride*3]
+    mova     m3, [r2+r3]
+    mova     m0, [r0+r3]
+    mova     m1, [r0+r3+stride]
+    mova     m2, [r0+r3+stride*2]
+    pmaddwd  m0, m3
+    pmaddwd  m1, m3
     paddd    m4, m0
+    pmaddwd  m2, m3
     paddd    m5, m1
+    pmaddwd  m3, [r0+r3+stride*3]
     paddd    m6, m2
     paddd    m7, m3
     add      r3, 16
@@ -83,15 +91,6 @@ exp2_x4:
     ret
 
 
-sigmoid_x4:
-    movaps   m1, m0
-    andps    m0, [ps_abs]
-    addps    m0, [ps_1]
-    rcpps    m0, m0
-    mulps    m0, m1
-    ret
-
-
 ; float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
 cglobal scale_net_sse2, 3,4,8
     sub      rsp, NNS*8+24
@@ -104,9 +103,10 @@ cglobal scale_net_sse2, 3,4,8
 %assign i 0
 %rep NNS/2
     call dotproduct_x4
+    mova     m1, [r1]
     cvtdq2ps m0, m0
-    mulps    m0, invstddev ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
-    mulps    m0, [r1]
+    mulps    m1, invstddev
+    mulps    m0, m1 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
     addps    m0, [r1+16]
     mova     [rsp+i*4], m0
 %if i==0
@@ -132,20 +132,18 @@ cglobal scale_net_sse2, 3,4,8
     mova     m0, [rsp+i*4]
     subps    m0, m7
     call exp2_x4
-    mova     m2, m0
-    mova     m0, [rsp+i*4+NNS*4]
-    call sigmoid_x4
-    mulps    m0, m2
-    addps    m6, m2
-    addps    m5, m0
+    mova     m1, [rsp+i*4+NNS*4]
+    SIGMOID  m1, m2
+    mulps    m1, m0
+    addps    m6, m0
+    addps    m5, m1
 %assign i i+4
 %endrep
 
     HADDPS   m1, m6
     HADDPS   m0, m5
-;   rcpss    m1, m1
-;   mulss    m0, m1
-    divss    m0, m1
+    rcpss    m1, m1
     mulss    m0, [ss_5]
+    mulss    m0, m1
     add rsp, NNS*8+24
     RET
