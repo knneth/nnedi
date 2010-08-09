@@ -89,42 +89,33 @@ cglobal dotproduct_x4
 
 %macro DOTP_ACC 1
     %assign  %%n %1
-    %assign  %%j %%n/6*6
+    %assign  %%j %%n/6
     %xdefine %%i tmp %+ %%n
     %xdefine %%k acc %+ %%j
     %if %%n % 6
         paddd m %+ %%k, m %+ %%i
         CAT_UNDEF used, %%i
     %else
-        CAT_XDEFINE acc, %%n, %%i
+        CAT_XDEFINE acc, %%j, %%i
     %endif
     CAT_UNDEF tmp, %%n
 %endmacro
 
+    DOTP_LOAD 0
+    DOTP_LOAD 1
+    DOTP_MUL  0
 %assign i 0
-%rep 4
-    DOTP_LOAD i+0
-    DOTP_LOAD i+1
+%rep 22
     DOTP_LOAD i+2
-    DOTP_LOAD i+3
-    DOTP_LOAD i+4
-    DOTP_LOAD i+5
-    DOTP_MUL  i+0
     DOTP_MUL  i+1
-    DOTP_MUL  i+2
-    DOTP_MUL  i+3
-    DOTP_MUL  i+4
-    DOTP_MUL  i+5
     DOTP_ACC  i+0
-    DOTP_ACC  i+1
-    DOTP_ACC  i+2
-    DOTP_ACC  i+3
-    DOTP_ACC  i+4
-    DOTP_ACC  i+5
-%assign i i+6
+%assign i i+1
 %endrep
+    DOTP_MUL  23
+    DOTP_ACC  22
+    DOTP_ACC  23
     add      r0, stride*4+128-offset
-    HADDPI_X4 m0, m1, m2, m3, m4
+    HADDPI_X4 m0, m %+ acc0, m %+ acc1, m %+ acc2, m %+ acc3
     ret
 
 
