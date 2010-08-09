@@ -46,10 +46,7 @@ INIT_XMM
 
 cglobal dotproduct_x4
 %define stride 48*2
-%define w0 r0-128
-%define w1 r0-128+stride
-%define w2 r0-128+stride*2
-%define w3 r0-128+stride*3
+%assign offset 128
 
 %macro LOAD 1
     %assign %%n %1 ; turn arg into a literal number so that it can be used in names
@@ -74,7 +71,11 @@ cglobal dotproduct_x4
     %else
         %error dotproduct register allocation failed
     %endif
-    mova     m %+ %%i, [w0+%%n*16]
+    mova     m %+ %%i, [r0+%%n*16-offset]
+    %if %%n*16-offset >= 112 ; keep opcodes small
+        add  r0, 256
+        %assign offset offset+256
+    %endif
     CAT_XDEFINE tmp, %%n, %%i
     CAT_XDEFINE used, %%i, 1
 %endmacro
@@ -122,7 +123,7 @@ cglobal dotproduct_x4
     ACC  i+5
 %assign i i+6
 %endrep
-    add      r0, stride*4
+    add      r0, stride*4+128-offset
     HADDPI_X4 m0, m1, m2, m3, m4
     ret
 
