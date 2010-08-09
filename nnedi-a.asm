@@ -42,14 +42,6 @@ INIT_XMM
     paddd      %1, %4
 %endmacro
 
-%macro SIGMOID 2 ; dst, tmp
-    movaps   %2, %1
-    andps    %1, m_abs
-    addps    %1, m_1
-    rcpps    %1, %1
-    mulps    %1, %2
-%endmacro
-
 
 %macro NOP_PAD 0
     times (($-$$)&15)/14 nop
@@ -131,20 +123,28 @@ cglobal dotproduct_x4
     ret
 
 
-%macro EXP2 0
-    movaps   m1, m0
-    addps    m0, m_exp_bias
-    movaps   m2, m0
-    subps    m0, m_exp_bias
-    pslld    m2, 23
-    subps    m1, m0
-    movaps   m0, m1
-    mulps    m1, m1
-    mulps    m0, m_exp_c1
-    mulps    m1, m_exp_c2
-    addps    m0, m_exp_c0
-    addps    m0, m1
-    paddd    m0, m2
+%macro SIGMOID 2 ; dst, tmp
+    movaps   %2, %1
+    andps    %1, m_abs
+    addps    %1, m_1
+    rcpps    %1, %1
+    mulps    %1, %2
+%endmacro
+
+%macro EXP2 3 ; dst, tmp, tmp
+    movaps   %2, %1
+    addps    %1, m_exp_bias
+    movaps   %3, %1
+    subps    %1, m_exp_bias
+    pslld    %3, 23
+    subps    %2, %1
+    movaps   %1, %2
+    mulps    %2, %2
+    mulps    %1, m_exp_c1
+    mulps    %2, m_exp_c2
+    addps    %1, m_exp_c0
+    addps    %1, %2
+    paddd    %1, %3
 %endmacro
 
 
@@ -164,7 +164,7 @@ cglobal scale_net_sse2, 3,4,8
     mova     m15, [r2+0x50]
 
     add      r0, 128
-    add      r2, 128
+    add      r2, 128 ; FIXME unused, but essential for alignment or something
 %assign i 0
 %rep NNS/2
     call dotproduct_x4
@@ -196,25 +196,25 @@ cglobal scale_net_sse2, 3,4,8
     mova     m_1,        [ps_1]
     mova     m_abs,      [ps_abs]
 
-    xorps    m6, m6 ; FIXME
-    xorps    m5, m5 ; FIXME
+    xorps    m5, m5
+    xorps    m6, m6
 %assign i 0
 %rep NNS/4
     mova     m0, [rsp+i*4]
     subps    m0, m7
-    EXP2
+    EXP2     m0, m1, m2
     mova     m1, [rsp+i*4+NNS*4]
     SIGMOID  m1, m2
     mulps    m1, m0
-    addps    m6, m0
-    addps    m5, m1
+    addps    m5, m0
+    addps    m6, m1
 %assign i i+4
 %endrep
 
-    HADDPS   m1, m6
     HADDPS   m0, m5
-    rcpss    m1, m1
-    mulss    m0, [ss_5]
+    HADDPS   m1, m6
+    rcpss    m0, m0
+    mulss    m1, [ss_5]
     mulss    m0, m1
     add rsp, NNS*8+24
     RET
