@@ -121,9 +121,6 @@ cglobal dotproduct_x4
     DOTP_ACC  23
     add      r0, stride*4+128-offset
     HADDPI_X4 m0, m %+ acc0, m %+ acc1, m %+ acc2, m %+ acc3
-    mova [rsp+8+NNS*8+r2], m0
-    add      r2, 16
-    jl dotproduct_x4
     ret
 
 
@@ -160,15 +157,13 @@ cglobal scale_net_sse2, 3,4,8
     mova     m15, [r2+0x50]
 
     add      r0, 128
-    mov      r2, -NNS*8
-    call dotproduct_x4
-
-    mova     m7, invstddev
+    add      r2, 128
 %assign i 0
 %rep NNS/2
+    call dotproduct_x4
     mova     m1, [r1]
-    cvtdq2ps m0, [rsp+i*4]
-    mulps    m1, m7
+    cvtdq2ps m0, m0
+    mulps    m1, invstddev
     mulps    m0, m1 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
     addps    m0, [r1+16]
     mova     [rsp+i*4], m0
