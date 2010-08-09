@@ -147,6 +147,11 @@ cglobal dotproduct_x4
     paddd    %1, %3
 %endmacro
 
+cglobal exp2_and_sigmoid
+    SIGMOID m1, m2
+    EXP2 m0, m2, m3
+    ret
+
 
 ; float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
 cglobal scale_net_sse2, 3,4,8
@@ -201,10 +206,9 @@ cglobal scale_net_sse2, 3,4,8
 %assign i 0
 %rep NNS/4
     mova     m0, [rsp+i*4]
-    subps    m0, m7
-    EXP2     m0, m1, m2
     mova     m1, [rsp+i*4+NNS*4]
-    SIGMOID  m1, m2
+    subps    m0, m7
+    call exp2_and_sigmoid
     mulps    m1, m0
     addps    m5, m0
     addps    m6, m1
