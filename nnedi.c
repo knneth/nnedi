@@ -790,7 +790,9 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             if(!tested2[x]) {
                 float mean, stddev, invstddev;
                 cast_pixels_scale(ibuf, src+(y-2)*sstride+x-3, sstride, &mean, &stddev, &invstddev);
+                START_TIMER;
                 float v = nnedi_scale_net_sse2(scale_weights_i, scale_weights_f, ibuf, invstddev);
+                STOP_TIMER("scale_net");
                 dst[(y*2+1)*dstride+x] = av_clip_uint8(v*stddev+mean+.5f);
             }
         }
