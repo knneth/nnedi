@@ -44,8 +44,8 @@ INIT_XMM
 %endmacro
 
 
+cglobal dotproduct_x4
 %define stride 48*2
-dotproduct_x4:
 %assign i -128
     mova     m7, [r2+i]
     mova     m4, [r0+i]
@@ -75,7 +75,7 @@ dotproduct_x4:
     ret
 
 
-exp2_x4:
+cglobal exp2_x4
     movaps   m1, m0
     addps    m0, [ps_exp_bias]
     movaps   m2, m0
