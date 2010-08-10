@@ -442,6 +442,8 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
 }
 
 // FIXME cap scaling factors so that intermediate sums don't overflow; or allow 7fff if that works.
+// FIXME try multiple scaling factors and mean removals to minimize total quantization error.
+// or try forcing everything to the same scaling factor to eliminate a few multiplies from scale_net.
 static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src)
 {
     for(int j=0; j<4; j++, src+=48, dsti+=48, dsti_transpose+=48) {
@@ -460,6 +462,27 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
 
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
 {
+    // the first half of the dotps go through a softmax filter, and thus are invariant to global offsets.
+    // remove any offsets they already have, so that the remaining smaller coefs can be represented with higher precision.
+    float mean[49] = {0};
+    for(int j=0; j<NNS; j++) {
+        for(int i=0; i<48; i++)
+            mean[i] += src[48*j+i];
+        mean[48] += src[48*2*NNS+j];
+    }
+    for(int i=0; i<49; i++)
+        mean[i] /= NNS;
+    float src2[49*2*NNS];
+    memcpy(src2, src, 49*2*NNS*sizeof(float));
+    for(int j=0; j<NNS; j++) {
+        for(int i=0; i<48; i++)
+            src2[48*j+i] -= mean[i];
+        src2[48*2*NNS+j] -= mean[48];
+    }
+    src = src2;
+
+    // cast input weights to int, scaling them by the largest factor that fits.
+    // record that factor so they can be converted back after dotproduct.
     float scales[2*NNS];
     for(int j=0; j<2*NNS; j++, src+=48, dsti+=48) {
         float max = 0;
