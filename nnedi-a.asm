@@ -179,20 +179,9 @@ cglobal scale_net_sse2, 3,4,8
     mulps    m0, m1 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
     addps    m0, [r1+16]
     mova     [rsp+i*4], m0
-%if i==0
-    mova     m9, m0
-%elif i<NNS
-    maxps    m9, m0
-%endif
     add      r1, 8*4
 %assign i i+4
 %endrep
-
-    movhlps  m7, m9
-    maxps    m7, m9
-    pshuflw  m9, m7, 0xe
-    maxss    m7, m9
-    shufps   m7, m7, 0
 
     mova     m_exp_bias, [ps_exp_bias]
     mova     m_exp_c0,   [ps_exp_c0]
@@ -207,7 +196,6 @@ cglobal scale_net_sse2, 3,4,8
 %rep NNS/4
     mova     m0, [rsp+i*4]
     mova     m1, [rsp+i*4+NNS*4]
-    subps    m0, m7
     call exp2_and_sigmoid
     mulps    m1, m0
     addps    m5, m0
