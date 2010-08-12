@@ -10,6 +10,7 @@ ps_1:        times 4 dd 1.0
 ps_abs:      times 4 dd 0x7fffffff
 ss_5:        dd 5.0
 
+%define m_invstddev m9
 %define m_exp_bias m10
 %define m_exp_c0   m11
 %define m_exp_c1   m12
@@ -173,16 +174,11 @@ cglobal scale_net_sse2, 3,4,8
 %assign i 0
 %rep NNS/2
     call dotproduct_x4
-    mova     m1, [r1]
-    cvtdq2ps m0, m0
-    mulps    m1, invstddev
-    mulps    m0, m1 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
-    addps    m0, [r1+16]
     mova     [rsp+i*4], m0
-    add      r1, 8*4
 %assign i i+4
 %endrep
 
+    mova     m_invstddev, invstddev
     mova     m_exp_bias, [ps_exp_bias]
     mova     m_exp_c0,   [ps_exp_c0]
     mova     m_exp_c1,   [ps_exp_c1]
@@ -194,8 +190,18 @@ cglobal scale_net_sse2, 3,4,8
     xorps    m6, m6
 %assign i 0
 %rep NNS/4
-    mova     m0, [rsp+i*4]
-    mova     m1, [rsp+i*4+NNS*4]
+    mova     m2, [r1]
+    mova     m3, [r1+NNS*8]
+    cvtdq2ps m0, [rsp+i*4]
+    cvtdq2ps m1, [rsp+i*4+NNS*4]
+    mulps    m2, m_invstddev
+    mulps    m3, m_invstddev
+    mulps    m0, m2
+    mulps    m1, m3 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
+    addps    m0, [r1+16]
+    addps    m1, [r1+16+NNS*8]
+    add      r1, 32
+
     call exp2_and_sigmoid
     mulps    m1, m0
     addps    m5, m0
