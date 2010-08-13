@@ -139,9 +139,9 @@ cglobal dotproducts
     DOTP_MUL  23
     paddd      m9, m0
     DOTP_ACC  22
-    DOTP_ACC  23
     add      r0, stride*4+128-offset
     add      r3, 16
+    DOTP_ACC  23
     jl .loop
     HADDPI_X4 m9, m0, m1, m2, m3
     mova [r2+r3-16], m9
