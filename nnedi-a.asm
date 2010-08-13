@@ -109,17 +109,17 @@ cglobal dotproducts
     DOTP_LOAD 0
     punpckhqdq m1, m3
     DOTP_LOAD 1
-    paddd      m1, m2
-    movdqa     m2, m9
+    paddd      m2, m1
+    movdqa     m3, m9
     DOTP_LOAD 2
     DOTP_MUL  0
-    shufps     m9, m1, 0x88
+    shufps     m9, m2, 0x88
     DOTP_LOAD 3
     DOTP_MUL  1
-    shufps     m2, m1, 0xdd
+    shufps     m3, m2, 0xdd
     DOTP_LOAD 4
     DOTP_ACC  0
-    paddd      m9, m2
+    paddd      m9, m3
     DOTP_MUL  2
     mova [r2+r3-16], m9
 .skip:
