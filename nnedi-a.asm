@@ -161,7 +161,8 @@ cglobal exp2_and_sigmoid
 ; float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
 cglobal scale_net_sse2, 3,4,8
     sub      rsp, NNS*8+24
-%define invstddev [rsp+NNS*8]
+%define buf rsp
+%define invstddev [buf+NNS*8]
     shufps   m0, m0, 0
     mova     invstddev, m0
 
@@ -174,7 +175,7 @@ cglobal scale_net_sse2, 3,4,8
     mova     m15, [r2+0x50]
 
     add      r0, 128
-    lea      r2, [rsp+NNS*8]
+    lea      r2, [buf+NNS*8]
     mov      r3, -NNS*8
     call dotproducts
 
@@ -192,8 +193,8 @@ cglobal scale_net_sse2, 3,4,8
 %rep NNS/4
     mova     m2, [r1]
     mova     m3, [r1+NNS*8]
-    cvtdq2ps m0, [rsp+i*4]
-    cvtdq2ps m1, [rsp+i*4+NNS*4]
+    cvtdq2ps m0, [buf+i*4]
+    cvtdq2ps m1, [buf+i*4+NNS*4]
     mulps    m2, m_invstddev
     mulps    m3, m_invstddev
     mulps    m0, m2
