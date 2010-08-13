@@ -103,9 +103,10 @@ INIT_XMM
     CAT_UNDEF tmp, %%n
 %endmacro
 
-cglobal dotproduct_x4
+cglobal dotproducts
 %define stride 48*2
 %assign offset 128
+.loop:
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_MUL  0
@@ -121,6 +122,9 @@ cglobal dotproduct_x4
     DOTP_ACC  23
     add      r0, stride*4+128-offset
     HADDPI_X4 m0, m %+ acc0, m %+ acc1, m %+ acc2, m %+ acc3
+    mova [r2+r3], m0
+    add      r3, 16
+    jl .loop
     ret
 
 
@@ -170,13 +174,9 @@ cglobal scale_net_sse2, 3,4,8
     mova     m15, [r2+0x50]
 
     add      r0, 128
-    add      r2, 128 ; FIXME unused, but essential for alignment or something
-%assign i 0
-%rep NNS/2
-    call dotproduct_x4
-    mova     [rsp+i*4], m0
-%assign i i+4
-%endrep
+    lea      r2, [rsp+NNS*8]
+    mov      r3, -NNS*8
+    call dotproducts
 
     mova     m_invstddev, invstddev
     mova     m_exp_bias, [ps_exp_bias]
