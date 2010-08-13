@@ -110,8 +110,11 @@ cglobal dotproducts
     DOTP_MUL  0
     DOTP_LOAD 3
     DOTP_MUL  1
-%assign i 0
-%rep 20
+    DOTP_LOAD 4
+    DOTP_ACC  0
+    DOTP_MUL  2
+%assign i 1
+%rep 19
     DOTP_LOAD i+4
     DOTP_ACC  i+0
     DOTP_MUL  i+2
