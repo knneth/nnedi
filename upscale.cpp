@@ -1,6 +1,5 @@
-#define cimg_use_jpeg
 #define cimg_use_png
-#define cimg_verbosity 1
+#define cimg_display 0
 #include <CImg.h>
 extern "C" {
 #include "nnedi.h"

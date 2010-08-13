@@ -3,7 +3,7 @@ CXXFLAGS=-O2 -g -Wall
 LDFLAGS=-L/usr/x11r6/lib
 
 upscale: upscale.o nnedi.o nnedi-a.o tables.o
-	$(CXX) -o $@ $+ $(LDFLAGS) -lpng -ljpeg -lz -lX11 -lpthread
+	$(CXX) -o $@ $+ $(LDFLAGS) -lpng -lz
 
 %.o: %.asm
 	yasm -f elf64 -DARCH_X86_64 -o $@ $<
