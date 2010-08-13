@@ -160,8 +160,8 @@ cglobal exp2_and_sigmoid
 
 ; float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
 cglobal scale_net_sse2, 3,4,8
-    sub      rsp, NNS*8+24
-%define buf rsp
+    sub      rsp, NNS*8+40
+%define buf rsp+16
 %define invstddev [buf+NNS*8]
     shufps   m0, m0, 0
     mova     invstddev, m0
@@ -215,5 +215,5 @@ cglobal scale_net_sse2, 3,4,8
     rcpss    m0, m0
     mulss    m1, [ss_5]
     mulss    m0, m1
-    add rsp, NNS*8+24
+    add rsp, NNS*8+40
     RET
