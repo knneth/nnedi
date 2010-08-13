@@ -104,6 +104,8 @@ cglobal dotproducts
 %define stride 48*2
 %assign offset 128
 .loop:
+    HADDPI_X4 m9, m0, m1, m2, m3
+    mova [r2+r3-16], m9
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_LOAD 2
@@ -131,10 +133,10 @@ cglobal dotproducts
     DOTP_ACC  22
     DOTP_ACC  23
     add      r0, stride*4+128-offset
-    HADDPI_X4 m9, m0, m1, m2, m3
-    mova [r2+r3], m9
     add      r3, 16
     jl .loop
+    HADDPI_X4 m9, m0, m1, m2, m3
+    mova [r2+r3-16], m9
     ret
 
 
