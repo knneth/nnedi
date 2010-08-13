@@ -55,25 +55,25 @@ INIT_XMM
     NOP_PAD
     %assign %%n %1 ; turn arg into a literal number so that it can be used in names
     %ifndef used1
-        %xdefine %%i 1
+        %assign %%i 1
     %elifndef used2
-        %xdefine %%i 2
+        %assign %%i 2
     %elifndef used3
-        %xdefine %%i 3
+        %assign %%i 3
     %elifndef used4
-        %xdefine %%i 4
+        %assign %%i 4
     %elifndef used5
-        %xdefine %%i 5
+        %assign %%i 5
     %elifndef used6
-        %xdefine %%i 6
+        %assign %%i 6
     %elifndef used7
-        %xdefine %%i 7
+        %assign %%i 7
     %elifndef used8
-        %xdefine %%i 8
+        %assign %%i 8
     %elifndef used9
-        %xdefine %%i 9
+        %assign %%i 9
     %elifndef used0
-        %xdefine %%i 0
+        %assign %%i 0
     %else
         %error dotproduct register allocation failed
     %endif
@@ -88,19 +88,19 @@ INIT_XMM
 
 %macro DOTP_MUL  1
     NOP_PAD
-    %assign  %%n %1
-    %assign  %%j 10 + (%%n % 6)
-    %xdefine %%i tmp %+ %%n
-    pmaddwd  m %+ %%i, m %+ %%j
+    %assign %%n %1
+    %assign %%j 10 + (%%n % 6)
+    %assign %%i tmp %+ %%n
+    pmaddwd m %+ %%i, m %+ %%j
 %endmacro
 
 %macro DOTP_ACC 1
     NOP_PAD
-    %assign  %%n %1
-    %assign  %%j %%n/6
-    %xdefine %%i tmp %+ %%n
-    %xdefine %%k acc %+ %%j
+    %assign %%n %1
+    %assign %%j %%n/6
+    %assign %%i tmp %+ %%n
     %if %%n % 6
+        %assign %%k acc %+ %%j
         paddd m %+ %%k, m %+ %%i
         CAT_UNDEF used, %%i
     %else
