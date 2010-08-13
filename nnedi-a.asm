@@ -45,8 +45,8 @@ INIT_XMM
 
 
 %macro NOP_PAD 0
-    times (($-$$)&15)/14 nop
-    times (($-$$)&15)/15 nop
+;   times (($-$$)&15)/14 nop
+;   times (($-$$)&15)/15 nop
 %endmacro
 
 %macro DOTP_LOAD 1
@@ -113,14 +113,20 @@ cglobal dotproducts
 .loop:
     DOTP_LOAD 0
     DOTP_LOAD 1
+    DOTP_LOAD 2
     DOTP_MUL  0
+    DOTP_LOAD 3
+    DOTP_MUL  1
 %assign i 0
-%rep 22
-    DOTP_LOAD i+2
+%rep 20
+    DOTP_LOAD i+4
     DOTP_ACC  i+0
-    DOTP_MUL  i+1
+    DOTP_MUL  i+2
 %assign i i+1
 %endrep
+    DOTP_ACC  20
+    DOTP_MUL  22
+    DOTP_ACC  21
     DOTP_MUL  23
     DOTP_ACC  22
     DOTP_ACC  23
