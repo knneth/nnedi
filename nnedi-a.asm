@@ -31,10 +31,10 @@ INIT_XMM
 %macro HADDPI_X4 5 ; dst, s0, s1, s2, s3
     ; optimized for conroe.
     ; nehalem probably prefers 6x punpck.
-    movdqa     %1, %2
-    punpcklqdq %2, %3
-    punpckhqdq %1, %3
-    paddd      %1, %2
+;   movdqa     %1, %2
+;   punpcklqdq %2, %3
+;   punpckhqdq %1, %3
+;   paddd      %1, %2
     movdqa     %2, %4
     punpcklqdq %4, %5
     punpckhqdq %2, %5
@@ -127,9 +127,13 @@ cglobal dotproducts
 %assign i i+1
 %endrep
     DOTP_ACC  20
+    mova       m0, m %+ acc0
     DOTP_MUL  22
+    punpcklqdq m %+ acc0, m %+ acc1
     DOTP_ACC  21
+    punpckhqdq m0, m %+ acc1
     DOTP_MUL  23
+    paddd      m0, m %+ acc0
     DOTP_ACC  22
     DOTP_ACC  23
     add      r0, stride*4+128-offset
