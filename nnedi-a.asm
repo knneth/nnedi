@@ -100,11 +100,10 @@ INIT_XMM
     %assign %%j %%n/6
     %assign %%i tmp %+ %%n
     %if %%n % 6
-        %assign %%k acc %+ %%j
-        paddd m %+ %%k, m %+ %%i
+        paddd acc %+ %%j, m %+ %%i
         CAT_UNDEF used, %%i
     %else
-        CAT_XDEFINE acc, %%j, %%i
+        CAT_XDEFINE acc, %%j, m %+ %%i
     %endif
     CAT_UNDEF tmp, %%n
 %endmacro
@@ -127,17 +126,17 @@ cglobal dotproducts
 %assign i i+1
 %endrep
     DOTP_ACC  20
-    mova       m0, m %+ acc0
+    mova       m0, acc0
     DOTP_MUL  22
-    punpcklqdq m %+ acc0, m %+ acc1
+    punpcklqdq acc0, acc1
     DOTP_ACC  21
-    punpckhqdq m0, m %+ acc1
+    punpckhqdq m0, acc1
     DOTP_MUL  23
-    paddd      m0, m %+ acc0
+    paddd      m0, acc0
     DOTP_ACC  22
     DOTP_ACC  23
     add      r0, stride*4+128-offset
-    HADDPI_X4 m0, m %+ acc0, m %+ acc1, m %+ acc2, m %+ acc3
+    HADDPI_X4 m0, acc0, acc1, acc2, acc3
     mova [r2+r3], m0
     add      r3, 16
     jl .loop
