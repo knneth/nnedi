@@ -54,12 +54,8 @@ INIT_XMM
 %macro DOTP_LOAD 1
     NOP_PAD
     %assign %%n %1 ; turn arg into a literal number so that it can be used in names
-    %ifndef used1
-        %assign %%i 1
-    %elifndef used2
-        %assign %%i 2
-    %elifndef used3
-        %assign %%i 3
+    %if (%%n % 6) == 0
+        %assign %%i %%n/6
     %elifndef used4
         %assign %%i 4
     %elifndef used5
@@ -72,8 +68,6 @@ INIT_XMM
         %assign %%i 8
     %elifndef used9
         %assign %%i 9
-    %elifndef used0
-        %assign %%i 0
     %else
         %error dotproduct register allocation failed
     %endif
@@ -100,10 +94,8 @@ INIT_XMM
     %assign %%j %%n/6
     %assign %%i tmp %+ %%n
     %if %%n % 6
-        paddd acc %+ %%j, m %+ %%i
+        paddd m %+ %%j, m %+ %%i
         CAT_UNDEF used, %%i
-    %else
-        CAT_XDEFINE acc, %%j, m %+ %%i
     %endif
     CAT_UNDEF tmp, %%n
 %endmacro
@@ -126,18 +118,18 @@ cglobal dotproducts
 %assign i i+1
 %endrep
     DOTP_ACC  20
-    mova       m0, acc0
+    mova       m9, m0
     DOTP_MUL  22
-    punpcklqdq acc0, acc1
+    punpcklqdq m0, m1
     DOTP_ACC  21
-    punpckhqdq m0, acc1
+    punpckhqdq m9, m1
     DOTP_MUL  23
-    paddd      m0, acc0
+    paddd      m9, m0
     DOTP_ACC  22
     DOTP_ACC  23
     add      r0, stride*4+128-offset
-    HADDPI_X4 m0, acc0, acc1, acc2, acc3
-    mova [r2+r3], m0
+    HADDPI_X4 m9, m0, m1, m2, m3
+    mova [r2+r3], m9
     add      r3, 16
     jl .loop
     ret
