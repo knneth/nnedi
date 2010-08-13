@@ -29,17 +29,19 @@ INIT_XMM
 %endmacro
 
 %macro HADDPI_X4 5 ; dst, s0, s1, s2, s3
+    ; optimized for conroe.
+    ; nehalem probably prefers 6x punpck.
     movdqa     %1, %2
-    punpckldq  %2, %3
-    punpckhdq  %1, %3
+    punpcklqdq %2, %3
+    punpckhqdq %1, %3
     paddd      %1, %2
     movdqa     %2, %4
-    punpckldq  %4, %5
-    punpckhdq  %2, %5
+    punpcklqdq %4, %5
+    punpckhqdq %2, %5
     paddd      %2, %4
     movdqa     %4, %1
-    punpcklqdq %1, %2
-    punpckhqdq %4, %2
+    shufps     %1, %2, 0x88
+    shufps     %4, %2, 0xdd
     paddd      %1, %4
 %endmacro
 
