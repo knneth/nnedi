@@ -104,7 +104,14 @@ cglobal dotproducts
 %define stride 48*2
 %assign offset 128
 .loop:
-    HADDPI_X4 m9, m0, m1, m2, m3
+    movdqa     m1, m2
+    punpcklqdq m2, m3
+    punpckhqdq m1, m3
+    paddd      m1, m2
+    movdqa     m2, m9
+    shufps     m9, m1, 0x88
+    shufps     m2, m1, 0xdd
+    paddd      m9, m2
     mova [r2+r3-16], m9
     DOTP_LOAD 0
     DOTP_LOAD 1
