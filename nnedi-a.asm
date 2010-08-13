@@ -31,10 +31,10 @@ INIT_XMM
 %macro HADDPI_X4 5 ; dst, s0, s1, s2, s3
     ; optimized for conroe.
     ; nehalem probably prefers 6x punpck.
-;   movdqa     %1, %2
-;   punpcklqdq %2, %3
-;   punpckhqdq %1, %3
-;   paddd      %1, %2
+    movdqa     %1, %2
+    punpcklqdq %2, %3
+    punpckhqdq %1, %3
+    paddd      %1, %2
     movdqa     %2, %4
     punpcklqdq %4, %5
     punpckhqdq %2, %5
@@ -122,7 +122,7 @@ cglobal dotproducts
     paddd      m9, m3
     DOTP_MUL  2
     mova [r2+r3-16], m9
-.skip:
+.skip: ; FIXME skip the hadd on the first iteration
 %assign i 1
 %rep 19
     DOTP_LOAD i+4
@@ -139,11 +139,18 @@ cglobal dotproducts
     DOTP_MUL  23
     paddd      m9, m0
     DOTP_ACC  22
-    add      r0, stride*4+128-offset
-    add      r3, 16
+    add        r0, stride*4+128-offset
+    add        r3, 16
     DOTP_ACC  23
     jl .loop
-    HADDPI_X4 m9, m0, m1, m2, m3
+    movdqa     m1, m2
+    punpcklqdq m2, m3
+    punpckhqdq m1, m3
+    paddd      m2, m1
+    movdqa     m3, m9
+    shufps     m9, m2, 0x88
+    shufps     m3, m2, 0xdd
+    paddd      m9, m3
     mova [r2+r3-16], m9
     ret
 
