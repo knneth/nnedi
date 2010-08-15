@@ -7,6 +7,7 @@ upscale: upscale.o nnedi.o nnedi-a.o tables.o
 
 %.o: %.asm
 	yasm -f elf64 -DARCH_X86_64 -o $@ $<
+	strip -x $@
 
 nnedi-a.o: x86inc.asm nnedi-a.h
 
