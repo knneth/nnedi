@@ -809,11 +809,13 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
         bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
+        pix = src+(y-2)*sstride-3;
+        uint8_t *dpix = dst+(y*2+1)*dstride;
         for(int x=0; x<width; x++) {
             if(!tested2[x]) {
                 START_TIMER;
-                int v = nnedi_scale_one_sse2(scale_weights_i, scale_weights_f, src+(y-2)*sstride+x-3, sstride);
-                dst[(y*2+1)*dstride+x] = av_clip_uint8(v);
+                int v = nnedi_scale_one_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
+                dpix[x] = av_clip_uint8(v);
                 STOP_TIMER("scale");
             }
         }

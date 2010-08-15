@@ -35,15 +35,15 @@ INIT_XMM
 %macro HADDPI_X4 5 ; dst, s0, s1, s2, s3
     ; optimized for conroe.
     ; nehalem probably prefers 6x punpck.
-    movdqa     %1, %2
+    mova       %1, %2
     punpcklqdq %2, %3
     punpckhqdq %1, %3
     paddd      %1, %2
-    movdqa     %2, %4
+    mova       %2, %4
     punpcklqdq %4, %5
     punpckhqdq %2, %5
     paddd      %2, %4
-    movdqa     %4, %1
+    mova       %4, %1
     shufps     %1, %2, 0x88
     shufps     %4, %2, 0xdd
     paddd      %1, %4
@@ -108,13 +108,13 @@ cglobal dotproducts
 %define stride 48*2
 %assign offset 128
 .loop:
-    movdqa     m1, m2
+    mova       m1, m2
     punpcklqdq m2, m3
     DOTP_LOAD 0
     punpckhqdq m1, m3
     DOTP_LOAD 1
     paddd      m2, m1
-    movdqa     m3, m9
+    mova       m3, m9
     DOTP_LOAD 2
     DOTP_MUL  0
     shufps     m9, m2, 0x88
@@ -147,11 +147,11 @@ cglobal dotproducts
     add        r3, 16
     DOTP_ACC  23
     jl .loop
-    movdqa     m1, m2
+    mova       m1, m2
     punpcklqdq m2, m3
     punpckhqdq m1, m3
     paddd      m2, m1
-    movdqa     m3, m9
+    mova       m3, m9
     shufps     m9, m2, 0x88
     shufps     m3, m2, 0xdd
     paddd      m9, m3
@@ -189,6 +189,22 @@ cglobal exp2_and_sigmoid
     ret
 
 
+%macro LOAD_SUM_SQUARE 7 ; dst0, dst1, sum0, sum1, t2, src0, src1
+    movq       %3, %6
+    movq       %5, %7
+    mova       %4, %3
+    punpcklqdq %4, %5
+    punpcklbw  %3, m0
+    punpcklbw  %5, m0
+    mova       %1, %3
+    mova       %2, %5
+    pmaddwd    %3, %3
+    pmaddwd    %5, %5
+    psadbw     %4, m0
+    paddd      %3, %5
+%endmacro
+
+
 ; int scale_one(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
 cglobal scale_one_sse2, 4,6,16
     sub      rsp, NNS*8+40
@@ -197,54 +213,17 @@ cglobal scale_one_sse2, 4,6,16
 %define stddev mean+4
 %define invstddev stddev+4
 
-.cast_pixels:
     ; compute sum and sum squared
     lea        r4, [r3*3]
     add        r4, r2
     pxor       m0, m0
-    movq       m1, [r2]
-    movq       m3, [r2+r3]
-    movdqa     m2, m1
-    punpcklqdq m2, m3
-    punpcklbw  m1, m0
-    punpcklbw  m3, m0
-    movdqa    m10, m1
-    movdqa    m11, m3
-    pmaddwd    m1, m1
-    pmaddwd    m3, m3
-    psadbw     m2, m0
-    paddd      m1, m3
-
-    movq       m3, [r2+r3*2]
-    movq       m5, [r4]
-    movdqa     m4, m3
-    punpcklqdq m4, m5
-    punpcklbw  m3, m0
-    punpcklbw  m5, m0
-    movdqa    m12, m3
-    movdqa    m13, m5
-    pmaddwd    m3, m3
-    pmaddwd    m5, m5
-    psadbw     m4, m0
-    paddd      m3, m5
+    LOAD_SUM_SQUARE m10, m11, m1, m2, m3, [r2], [r2+r3]
+    LOAD_SUM_SQUARE m12, m13, m3, m4, m5, [r2+r3*2], [r4]
     paddd      m2, m4
     paddd      m1, m3
-
-    movq       m3, [r4+r3]
-    movq       m5, [r4+r3*2]
-    movdqa     m4, m3
-    punpcklqdq m4, m5
-    punpcklbw  m3, m0
-    punpcklbw  m5, m0
-    movdqa    m14, m3
-    movdqa    m15, m5
-    pmaddwd    m3, m3
-    pmaddwd    m5, m5
-    psadbw     m4, m0
-    paddd      m3, m5
+    LOAD_SUM_SQUARE m14, m15, m3, m4, m5, [r4+r3], [r4+r3*2]
     paddd      m2, m4
     paddd      m1, m3
-
     movhlps    m4, m2
     movhlps    m3, m1
     paddd      m2, m4
@@ -288,27 +267,27 @@ cglobal scale_one_sse2, 4,6,16
     psllw     m15, 4
     psubw     m15, m3
 
-.neural_net:
+    ; neural net
     add      r0, 128
     lea      r2, [buf+NNS*8]
     mov      r3, -NNS*8
     call dotproducts
 
     movss    m_invstddev, [invstddev]
-    mova     m_exp_bias, [ps_exp_bias]
-    mova     m_exp_c0,   [ps_exp_c0]
+    movaps   m_exp_bias, [ps_exp_bias]
+    movaps   m_exp_c0,   [ps_exp_c0]
     shufps   m_invstddev, m_invstddev, 0
-    mova     m_exp_c1,   [ps_exp_c1]
-    mova     m_exp_c2,   [ps_exp_c2]
-    mova     m_1,        [ps_1]
-    mova     m_abs,      [ps_abs]
+    movaps   m_exp_c1,   [ps_exp_c1]
+    movaps   m_exp_c2,   [ps_exp_c2]
+    movaps   m_1,        [ps_1]
+    movaps   m_abs,      [ps_abs]
 
     xorps    m5, m5
     xorps    m6, m6
 %assign i 0
 %rep NNS/4
-    mova     m2, [r1]
-    mova     m3, [r1+NNS*8]
+    movaps   m2, [r1]
+    movaps   m3, [r1+NNS*8]
     cvtdq2ps m0, [buf+i*4]
     cvtdq2ps m1, [buf+i*4+NNS*4]
     mulps    m2, m_invstddev
@@ -318,7 +297,6 @@ cglobal scale_one_sse2, 4,6,16
     addps    m0, [r1+16]
     addps    m1, [r1+16+NNS*8]
     add      r1, 32
-
     call exp2_and_sigmoid
     mulps    m1, m0
     addps    m5, m0
