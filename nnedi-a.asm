@@ -58,8 +58,8 @@ INIT_XMM
 %macro DOTP_LOAD 1
     NOP_PAD
     %assign %%n %1 ; turn arg into a literal number so that it can be used in names
-    %if (%%n % 6) == 0
-        %assign %%i %%n/6
+    %if %%n == 0
+        %assign %%i 0
     %elifndef used4
         %assign %%i 4
     %elifndef used5
@@ -87,18 +87,18 @@ INIT_XMM
 %macro DOTP_MUL  1
     NOP_PAD
     %assign %%n %1
-    %assign %%j 10 + (%%n % 6)
+    %assign %%j 10 + (%%n / 4)
     %assign %%i tmp %+ %%n
     pmaddwd m %+ %%i, m %+ %%j
+    pshufd  m %+ %%j, m %+ %%j, 0x39 ; FIXME palignr
 %endmacro
 
 %macro DOTP_ACC 1
     NOP_PAD
     %assign %%n %1
-    %assign %%j %%n/6
     %assign %%i tmp %+ %%n
-    %if %%n % 6
-        paddd m %+ %%j, m %+ %%i
+    %if %%n
+        paddd m0, m %+ %%i
         CAT_UNDEF used, %%i
     %endif
     CAT_UNDEF tmp, %%n
@@ -108,54 +108,29 @@ cglobal dotproducts
 %define stride 48*2
 %assign offset 128
 .loop:
-    mova       m1, m2
-    punpcklqdq m2, m3
     DOTP_LOAD 0
-    punpckhqdq m1, m3
     DOTP_LOAD 1
-    paddd      m2, m1
-    mova       m3, m9
     DOTP_LOAD 2
     DOTP_MUL  0
-    shufps     m9, m2, 0x88
     DOTP_LOAD 3
     DOTP_MUL  1
-    shufps     m3, m2, 0xdd
-    DOTP_LOAD 4
-    DOTP_ACC  0
-    paddd      m9, m3
-    DOTP_MUL  2
-    mova [r2+r3-16], m9
-.skip: ; FIXME skip the hadd on the first iteration
-%assign i 1
-%rep 19
+%assign i 0
+%rep 20
     DOTP_LOAD i+4
     DOTP_ACC  i+0
     DOTP_MUL  i+2
 %assign i i+1
 %endrep
     DOTP_ACC  20
-    mova       m9, m0
     DOTP_MUL  22
-    punpcklqdq m0, m1
     DOTP_ACC  21
-    punpckhqdq m9, m1
     DOTP_MUL  23
-    paddd      m9, m0
     DOTP_ACC  22
     add        r0, stride*4+128-offset
     add        r3, 16
     DOTP_ACC  23
+    mova [r2+r3-16], m0
     jl .loop
-    mova       m1, m2
-    punpcklqdq m2, m3
-    punpckhqdq m1, m3
-    paddd      m2, m1
-    mova       m3, m9
-    shufps     m9, m2, 0x88
-    shufps     m3, m2, 0xdd
-    paddd      m9, m3
-    mova [r2+r3-16], m9
     ret
 
 

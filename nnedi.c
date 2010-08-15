@@ -499,6 +499,16 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     }
     for(int j=0; j<2*NNS; j++)
         dstf[j] *= M_LOG2E;
+
+    // transpose weights into the order that asm wants
+    dsti -= 48*2*NNS;
+    for(int j=0; j<2*NNS; j+=4) {
+        uint32_t *a = (uint32_t*)(dsti+48*j);
+        uint32_t b[96];
+        for(int i=0; i<96; i++)
+            b[i] = a[24*(i&3) + 4*(i>>4) + ((i+(i>>2))&3)];
+        memcpy(a, b, sizeof(b));
+    }
 }
 
 static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
