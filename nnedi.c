@@ -407,10 +407,10 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
         :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
     );
 #endif
-    float bias = mean_stddev_inv[0] = sum*(1/48.f);
-    float var = sum2*(1/48.f) - bias*bias;
-    if(var > FLT_EPSILON) {
-        float invstddev = mean_stddev_inv[2] = rsqrtss(var);
+    int var = sum2*48-sum*sum;
+    mean_stddev_inv[0] = sum*(1/48.f);
+    if(var > 0) {
+        float invstddev = mean_stddev_inv[2] = rsqrtss(var)*48.f;
         mean_stddev_inv[1] = rcpss(invstddev);
     } else {
         mean_stddev_inv[1] = 0;
