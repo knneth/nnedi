@@ -102,23 +102,17 @@ cglobal cast_pixels_scale_sse2, 4,7,16
     pshuflw    m3, m3, 0
     punpcklqdq m3, m3
     psllw     m10, 4
-    psllw     m11, 4
-    psllw     m12, 4
-    psllw     m13, 4
-    psllw     m14, 4
-    psllw     m15, 4
     psubw     m10, m3
+    psllw     m11, 4
     psubw     m11, m3
+    psllw     m12, 4
     psubw     m12, m3
+    psllw     m13, 4
     psubw     m13, m3
+    psllw     m14, 4
     psubw     m14, m3
+    psllw     m15, 4
     psubw     m15, m3
-    mova [r0+0x00], m10
-    mova [r0+0x10], m11
-    mova [r0+0x20], m12
-    mova [r0+0x30], m13
-    mova [r0+0x40], m14
-    mova [r0+0x50], m15
     RET
 
 .zero:
@@ -297,14 +291,6 @@ cglobal exp2_and_sigmoid
 cglobal scale_net_sse2, 3,5,16
     sub      rsp, NNS*8+24
 %define buf rsp+16
-
-    ; load all the pixels into regs, where they will stay throughout the dotproduct pass
-    mova     m10, [r2+0x00]
-    mova     m11, [r2+0x10]
-    mova     m12, [r2+0x20]
-    mova     m13, [r2+0x30]
-    mova     m14, [r2+0x40]
-    mova     m15, [r2+0x50]
 
     add      r0, 128
     lea      r2, [buf+NNS*8]
