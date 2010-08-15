@@ -9,6 +9,9 @@ ps_exp_c2:   times 4 dd 0.237348593 ; 0.49401*M_LN2*M_LN2
 ps_1:        times 4 dd 1.0
 ps_abs:      times 4 dd 0x7fffffff
 ss_5:        dd 5.0
+ss_48        dd 48.0
+ss_1_3:      dd 0.3333333333
+ss_1_16:     dd 0.0625
 
 %define m_invstddev m9
 %define m_exp_bias m10
@@ -20,6 +23,111 @@ ss_5:        dd 5.0
 
 SECTION .text
 INIT_XMM
+
+
+; void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean_stddev_inv)
+cglobal cast_pixels_scale_sse2, 4,7,16
+    lea        r4, [r2*3]
+    add        r4, r1
+    pxor       m0, m0
+    movq       m1, [r1]
+    movq       m3, [r1+r2]
+    movdqa     m2, m1
+    punpcklqdq m2, m3
+    punpcklbw  m1, m0
+    punpcklbw  m3, m0
+    movdqa    m10, m1
+    movdqa    m11, m3
+    pmaddwd    m1, m1
+    pmaddwd    m3, m3
+    psadbw     m2, m0
+    paddd      m1, m3
+
+    movq       m3, [r1+r2*2]
+    movq       m5, [r4]
+    movdqa     m4, m3
+    punpcklqdq m4, m5
+    punpcklbw  m3, m0
+    punpcklbw  m5, m0
+    movdqa    m12, m3
+    movdqa    m13, m5
+    pmaddwd    m3, m3
+    pmaddwd    m5, m5
+    psadbw     m4, m0
+    paddd      m3, m5
+    paddd      m2, m4
+    paddd      m1, m3
+
+    movq       m3, [r4+r2]
+    movq       m5, [r4+r2*2]
+    movdqa     m4, m3
+    punpcklqdq m4, m5
+    punpcklbw  m3, m0
+    punpcklbw  m5, m0
+    movdqa    m14, m3
+    movdqa    m15, m5
+    pmaddwd    m3, m3
+    pmaddwd    m5, m5
+    psadbw     m4, m0
+    paddd      m3, m5
+    paddd      m2, m4
+    paddd      m1, m3
+
+    movhlps    m4, m2
+    movhlps    m3, m1
+    paddd      m2, m4
+    paddd      m1, m3
+    pshuflw    m3, m1, 14
+    paddd      m1, m3
+    movd      r5d, m2
+    movd      r6d, m1
+
+    xorps      m2, m2
+    cvtsi2ss   m2, r5d
+    imul      r6d, 48
+    mulss      m2, [ss_1_3]
+    cvtps2dq   m3, m2
+    imul      r5d, r5d
+    mulss      m2, [ss_1_16]
+    sub       r6d, r5d
+    jle .zero
+    cvtsi2ss   m1, r6d
+    movss    [r3], m2
+    rsqrtss    m1, m1
+    mulss      m1, [ss_48]
+    movss  [r3+8], m1
+    rcpss      m1, m1
+    movss  [r3+4], m1
+
+    pshuflw    m3, m3, 0
+    punpcklqdq m3, m3
+    psllw     m10, 4
+    psllw     m11, 4
+    psllw     m12, 4
+    psllw     m13, 4
+    psllw     m14, 4
+    psllw     m15, 4
+    psubw     m10, m3
+    psubw     m11, m3
+    psubw     m12, m3
+    psubw     m13, m3
+    psubw     m14, m3
+    psubw     m15, m3
+    mova [r0+0x00], m10
+    mova [r0+0x10], m11
+    mova [r0+0x20], m12
+    mova [r0+0x30], m13
+    mova [r0+0x40], m14
+    mova [r0+0x50], m15
+    RET
+
+.zero:
+    movss     [r3], m2
+    mov dword [r3+4], 0
+    mov dword [r3+8], 0
+    RET
+
+
 
 %macro HADDPS 2 ; dst, src
     movhlps    %1, %2

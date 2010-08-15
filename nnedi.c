@@ -743,6 +743,7 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 }
 
 
+void nnedi_cast_pixels_scale_sse2(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean_stddev_inv);
 int nnedi_scale_net_sse2(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float *mean_stddev_inv);
 
 static struct {
@@ -813,7 +814,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             if(!tested2[x]) {
                 START_TIMER;
                 float mean_stddev_inv[3];
-                cast_pixels_scale(ibuf, src+(y-2)*sstride+x-3, sstride, mean_stddev_inv);
+                nnedi_cast_pixels_scale_sse2(ibuf, src+(y-2)*sstride+x-3, sstride, mean_stddev_inv);
                 int v = nnedi_scale_net_sse2(scale_weights_i, scale_weights_f, ibuf, mean_stddev_inv);
                 dst[(y*2+1)*dstride+x] = av_clip_uint8(v);
                 STOP_TIMER("scale");
