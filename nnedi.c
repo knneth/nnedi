@@ -502,11 +502,11 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
 
     // transpose weights into the order that asm wants
     dsti -= 48*2*NNS;
-    for(int j=0; j<2*NNS; j+=4) {
+    for(int j=0; j<2*NNS; j+=16) {
         uint32_t *a = (uint32_t*)(dsti+48*j);
-        uint32_t b[96];
-        for(int i=0; i<96; i++)
-            b[i] = a[24*(i&3) + 4*(i>>4) + ((i+(i>>2))&3)];
+        uint32_t b[48*8];
+        for(int i=0; i<48*8; i++)
+            b[i] = a[96*((i>>2)&3) + 24*(i&3) + 4*(i>>6) + ((i+(i>>4))&3)];
         memcpy(a, b, sizeof(b));
     }
 }

@@ -58,8 +58,8 @@ INIT_XMM
 %macro DOTP_LOAD 1
     NOP_PAD
     %assign %%n %1 ; turn arg into a literal number so that it can be used in names
-    %if %%n == 0
-        %assign %%i 0
+    %if %%n < 4
+        %assign %%i %%n
     %elifndef used4
         %assign %%i 4
     %elifndef used5
@@ -87,18 +87,22 @@ INIT_XMM
 %macro DOTP_MUL  1
     NOP_PAD
     %assign %%n %1
-    %assign %%j 10 + (%%n / 4)
+    %assign %%j 10 + (%%n / 16)
     %assign %%i tmp %+ %%n
     pmaddwd m %+ %%i, m %+ %%j
-    pshufd  m %+ %%j, m %+ %%j, 0x39 ; FIXME palignr
+    %if (%%n & 3) == 3
+        pshufd  m %+ %%j, m %+ %%j, 0x39
+;       palignr m %+ %%j, m %+ %%j, 4
+    %endif
 %endmacro
 
 %macro DOTP_ACC 1
     NOP_PAD
     %assign %%n %1
     %assign %%i tmp %+ %%n
-    %if %%n
-        paddd m0, m %+ %%i
+    %if %%n >= 4
+        %assign %%j %%n&3
+        paddd m %+ %%j, m %+ %%i
         CAT_UNDEF used, %%i
     %endif
     CAT_UNDEF tmp, %%n
@@ -107,7 +111,6 @@ INIT_XMM
 cglobal dotproducts
 %define stride 48*2
 %assign offset 128
-.loop:
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_LOAD 2
@@ -115,22 +118,24 @@ cglobal dotproducts
     DOTP_LOAD 3
     DOTP_MUL  1
 %assign i 0
-%rep 20
+%rep 92
     DOTP_LOAD i+4
     DOTP_ACC  i+0
     DOTP_MUL  i+2
 %assign i i+1
 %endrep
-    DOTP_ACC  20
-    DOTP_MUL  22
-    DOTP_ACC  21
-    DOTP_MUL  23
-    DOTP_ACC  22
-    add        r0, stride*4+128-offset
-    add        r3, 16
-    DOTP_ACC  23
-    mova [r2+r3-16], m0
-    jl .loop
+    DOTP_ACC  92
+    DOTP_MUL  94
+    DOTP_ACC  93
+    mova  [r2], m0
+    DOTP_MUL  95
+    DOTP_ACC  94
+    mova  [r2+16], m1
+    add        r0, stride*16+128-offset
+    DOTP_ACC  95
+    mova  [r2+32], m2
+    mova  [r2+48], m3
+    add        r2, 64
     ret
 
 
@@ -182,8 +187,8 @@ cglobal exp2_and_sigmoid
 
 ; int scale_one(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
 cglobal scale_one_sse2, 4,6,16
-    sub      rsp, NNS*8+40
-%define buf rsp+16
+    sub      rsp, NNS*8+24
+%define buf rsp
 %define mean buf+NNS*8
 %define stddev mean+4
 %define invstddev stddev+4
@@ -244,9 +249,10 @@ cglobal scale_one_sse2, 4,6,16
 
     ; neural net
     add      r0, 128
-    lea      r2, [buf+NNS*8]
-    mov      r3, -NNS*8
+    mov      r2, buf
+%rep NNS/8
     call dotproducts
+%endrep
 
     movss    m_invstddev, [invstddev]
     movaps   m_exp_bias, [ps_exp_bias]
@@ -288,11 +294,11 @@ cglobal scale_one_sse2, 4,6,16
     mulss    m0, m1
     addss    m0, [mean]
     cvtss2si eax, m0
-    add rsp, NNS*8+40
+    add rsp, NNS*8+24
     RET
 
 .zero:
     cvtss2si eax, m2
-    add rsp, NNS*8+40
+    add rsp, NNS*8+24
     RET
 
