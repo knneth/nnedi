@@ -121,7 +121,7 @@ cglobal dotproducts
     DOTP_ACC  0
     paddd      m9, m3
     DOTP_MUL  2
-    mova [r2+r3-16], m9
+    mova [r2+r4-16], m9
 .skip: ; FIXME skip the hadd on the first iteration
 %assign i 1
 %rep 19
@@ -140,7 +140,7 @@ cglobal dotproducts
     paddd      m9, m0
     DOTP_ACC  22
     add        r0, stride*4+128-offset
-    add        r3, 16
+    add        r4, 16
     DOTP_ACC  23
     jl .loop
     movdqa     m1, m2
@@ -151,7 +151,7 @@ cglobal dotproducts
     shufps     m9, m2, 0x88
     shufps     m3, m2, 0xdd
     paddd      m9, m3
-    mova [r2+r3-16], m9
+    mova [r2+r4-16], m9
     ret
 
 
@@ -185,13 +185,10 @@ cglobal exp2_and_sigmoid
     ret
 
 
-; float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
-cglobal scale_net_sse2, 3,4,8
-    sub      rsp, NNS*8+40
+; int cale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float *mean_stddev_inv)
+cglobal scale_net_sse2, 3,5,16
+    sub      rsp, NNS*8+24
 %define buf rsp+16
-%define invstddev [buf+NNS*8]
-    shufps   m0, m0, 0
-    mova     invstddev, m0
 
     ; load all the pixels into regs, where they will stay throughout the dotproduct pass
     mova     m10, [r2+0x00]
@@ -203,12 +200,13 @@ cglobal scale_net_sse2, 3,4,8
 
     add      r0, 128
     lea      r2, [buf+NNS*8]
-    mov      r3, -NNS*8
+    mov      r4, -NNS*8
     call dotproducts
 
-    mova     m_invstddev, invstddev
+    movss    m_invstddev, [r3+8]
     mova     m_exp_bias, [ps_exp_bias]
     mova     m_exp_c0,   [ps_exp_c0]
+    shufps   m_invstddev, m_invstddev, 0
     mova     m_exp_c1,   [ps_exp_c1]
     mova     m_exp_c2,   [ps_exp_c2]
     mova     m_1,        [ps_1]
@@ -238,9 +236,13 @@ cglobal scale_net_sse2, 3,4,8
 %endrep
 
     HADDPS   m0, m5
+    movss    m2, [ss_5]
     HADDPS   m1, m6
+    mulss    m2, [r3+4]
     rcpss    m0, m0
-    mulss    m1, [ss_5]
+    mulss    m1, m2
     mulss    m0, m1
-    add rsp, NNS*8+40
+    addss    m0, [r3]
+    cvtss2si eax, m0
+    add rsp, NNS*8+24
     RET
