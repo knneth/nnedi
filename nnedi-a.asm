@@ -25,104 +25,6 @@ SECTION .text
 INIT_XMM
 
 
-; void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean_stddev_inv)
-cglobal cast_pixels_scale_sse2, 4,7,16
-    lea        r4, [r2*3]
-    add        r4, r1
-    pxor       m0, m0
-    movq       m1, [r1]
-    movq       m3, [r1+r2]
-    movdqa     m2, m1
-    punpcklqdq m2, m3
-    punpcklbw  m1, m0
-    punpcklbw  m3, m0
-    movdqa    m10, m1
-    movdqa    m11, m3
-    pmaddwd    m1, m1
-    pmaddwd    m3, m3
-    psadbw     m2, m0
-    paddd      m1, m3
-
-    movq       m3, [r1+r2*2]
-    movq       m5, [r4]
-    movdqa     m4, m3
-    punpcklqdq m4, m5
-    punpcklbw  m3, m0
-    punpcklbw  m5, m0
-    movdqa    m12, m3
-    movdqa    m13, m5
-    pmaddwd    m3, m3
-    pmaddwd    m5, m5
-    psadbw     m4, m0
-    paddd      m3, m5
-    paddd      m2, m4
-    paddd      m1, m3
-
-    movq       m3, [r4+r2]
-    movq       m5, [r4+r2*2]
-    movdqa     m4, m3
-    punpcklqdq m4, m5
-    punpcklbw  m3, m0
-    punpcklbw  m5, m0
-    movdqa    m14, m3
-    movdqa    m15, m5
-    pmaddwd    m3, m3
-    pmaddwd    m5, m5
-    psadbw     m4, m0
-    paddd      m3, m5
-    paddd      m2, m4
-    paddd      m1, m3
-
-    movhlps    m4, m2
-    movhlps    m3, m1
-    paddd      m2, m4
-    paddd      m1, m3
-    pshuflw    m3, m1, 14
-    paddd      m1, m3
-    movd      r5d, m2
-    movd      r6d, m1
-
-    xorps      m2, m2
-    cvtsi2ss   m2, r5d
-    imul      r6d, 48
-    mulss      m2, [ss_1_3]
-    cvtps2dq   m3, m2
-    imul      r5d, r5d
-    mulss      m2, [ss_1_16]
-    sub       r6d, r5d
-    jle .zero
-    cvtsi2ss   m1, r6d
-    movss    [r3], m2
-    rsqrtss    m1, m1
-    mulss      m1, [ss_48]
-    movss  [r3+8], m1
-    rcpss      m1, m1
-    movss  [r3+4], m1
-
-    pshuflw    m3, m3, 0
-    punpcklqdq m3, m3
-    psllw     m10, 4
-    psubw     m10, m3
-    psllw     m11, 4
-    psubw     m11, m3
-    psllw     m12, 4
-    psubw     m12, m3
-    psllw     m13, 4
-    psubw     m13, m3
-    psllw     m14, 4
-    psubw     m14, m3
-    psllw     m15, 4
-    psubw     m15, m3
-    RET
-
-.zero:
-    movss     [r3], m2
-    mov dword [r3+4], 0
-    mov dword [r3+8], 0
-    RET
-
-
-
 %macro HADDPS 2 ; dst, src
     movhlps    %1, %2
     addps      %1, %2
@@ -223,7 +125,7 @@ cglobal dotproducts
     DOTP_ACC  0
     paddd      m9, m3
     DOTP_MUL  2
-    mova [r2+r4-16], m9
+    mova [r2+r3-16], m9
 .skip: ; FIXME skip the hadd on the first iteration
 %assign i 1
 %rep 19
@@ -242,7 +144,7 @@ cglobal dotproducts
     paddd      m9, m0
     DOTP_ACC  22
     add        r0, stride*4+128-offset
-    add        r4, 16
+    add        r3, 16
     DOTP_ACC  23
     jl .loop
     movdqa     m1, m2
@@ -253,7 +155,7 @@ cglobal dotproducts
     shufps     m9, m2, 0x88
     shufps     m3, m2, 0xdd
     paddd      m9, m3
-    mova [r2+r4-16], m9
+    mova [r2+r3-16], m9
     ret
 
 
@@ -287,17 +189,112 @@ cglobal exp2_and_sigmoid
     ret
 
 
-; int cale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float *mean_stddev_inv)
-cglobal scale_net_sse2, 3,5,16
-    sub      rsp, NNS*8+24
+; int scale_one(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
+cglobal scale_one_sse2, 4,6,16
+    sub      rsp, NNS*8+40
 %define buf rsp+16
+%define mean buf+NNS*8
+%define stddev mean+4
+%define invstddev stddev+4
 
+.cast_pixels:
+    ; compute sum and sum squared
+    lea        r4, [r3*3]
+    add        r4, r2
+    pxor       m0, m0
+    movq       m1, [r2]
+    movq       m3, [r2+r3]
+    movdqa     m2, m1
+    punpcklqdq m2, m3
+    punpcklbw  m1, m0
+    punpcklbw  m3, m0
+    movdqa    m10, m1
+    movdqa    m11, m3
+    pmaddwd    m1, m1
+    pmaddwd    m3, m3
+    psadbw     m2, m0
+    paddd      m1, m3
+
+    movq       m3, [r2+r3*2]
+    movq       m5, [r4]
+    movdqa     m4, m3
+    punpcklqdq m4, m5
+    punpcklbw  m3, m0
+    punpcklbw  m5, m0
+    movdqa    m12, m3
+    movdqa    m13, m5
+    pmaddwd    m3, m3
+    pmaddwd    m5, m5
+    psadbw     m4, m0
+    paddd      m3, m5
+    paddd      m2, m4
+    paddd      m1, m3
+
+    movq       m3, [r4+r3]
+    movq       m5, [r4+r3*2]
+    movdqa     m4, m3
+    punpcklqdq m4, m5
+    punpcklbw  m3, m0
+    punpcklbw  m5, m0
+    movdqa    m14, m3
+    movdqa    m15, m5
+    pmaddwd    m3, m3
+    pmaddwd    m5, m5
+    psadbw     m4, m0
+    paddd      m3, m5
+    paddd      m2, m4
+    paddd      m1, m3
+
+    movhlps    m4, m2
+    movhlps    m3, m1
+    paddd      m2, m4
+    paddd      m1, m3
+    pshuflw    m3, m1, 14
+    paddd      m1, m3
+    movd      r4d, m2
+    movd      r5d, m1
+
+    ; compute means and stddev
+    xorps      m2, m2
+    cvtsi2ss   m2, r4d
+    imul      r5d, 48
+    mulss      m2, [ss_1_3]
+    cvtps2dq   m3, m2
+    imul      r4d, r4d
+    mulss      m2, [ss_1_16]
+    sub       r5d, r4d
+    jle .zero
+    cvtsi2ss   m1, r5d
+    movss  [mean], m2
+    rsqrtss    m1, m1
+    mulss      m1, [ss_48]
+    movss  [invstddev], m1
+    rcpss      m1, m1
+    movss  [stddev], m1
+
+    ; remove mean
+    pshuflw    m3, m3, 0
+    punpcklqdq m3, m3
+    psllw     m10, 4
+    psubw     m10, m3
+    psllw     m11, 4
+    psubw     m11, m3
+    psllw     m12, 4
+    psubw     m12, m3
+    psllw     m13, 4
+    psubw     m13, m3
+    psllw     m14, 4
+    psubw     m14, m3
+    psllw     m15, 4
+    psubw     m15, m3
+
+.neural_net:
     add      r0, 128
     lea      r2, [buf+NNS*8]
-    mov      r4, -NNS*8
+    mov      r3, -NNS*8
     call dotproducts
 
-    movss    m_invstddev, [r3+8]
+    movss    m_invstddev, [invstddev]
     mova     m_exp_bias, [ps_exp_bias]
     mova     m_exp_c0,   [ps_exp_c0]
     shufps   m_invstddev, m_invstddev, 0
@@ -332,11 +329,17 @@ cglobal scale_net_sse2, 3,5,16
     HADDPS   m0, m5
     movss    m2, [ss_5]
     HADDPS   m1, m6
-    mulss    m2, [r3+4]
+    mulss    m2, [stddev]
     rcpss    m0, m0
     mulss    m1, m2
     mulss    m0, m1
-    addss    m0, [r3]
+    addss    m0, [mean]
     cvtss2si eax, m0
-    add rsp, NNS*8+24
+    add rsp, NNS*8+40
     RET
+
+.zero:
+    cvtss2si eax, m2
+    add rsp, NNS*8+40
+    RET
+
