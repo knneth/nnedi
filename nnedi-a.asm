@@ -163,12 +163,6 @@ cglobal dotproducts
     paddd    %1, %3
 %endmacro
 
-cglobal exp2_and_sigmoid
-    SIGMOID m1, m2
-    EXP2 m0, m2, m3
-    ret
-
-
 %macro LOAD_SUM_SQUARE 7 ; dst0, dst1, sum0, sum1, t2, src0, src1
     movq       %3, %6
     movq       %5, %7
@@ -263,22 +257,23 @@ cglobal scale_one_sse2, 4,6,16
     movaps   m_1,        [ps_1]
     movaps   m_abs,      [ps_abs]
 
+    add      r1, NNS*8
     xorps    m5, m5
     xorps    m6, m6
 %assign i 0
 %rep NNS/4
-    movaps   m2, [r1]
-    movaps   m3, [r1+NNS*8]
+    movaps   m2, [r1+i*8-NNS*8]
+    movaps   m3, [r1+i*8]
     cvtdq2ps m0, [buf+i*4]
     cvtdq2ps m1, [buf+i*4+NNS*4]
     mulps    m2, m_invstddev
     mulps    m3, m_invstddev
     mulps    m0, m2
     mulps    m1, m3 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
-    addps    m0, [r1+16]
-    addps    m1, [r1+16+NNS*8]
-    add      r1, 32
-    call exp2_and_sigmoid
+    addps    m0, [r1+i*8+16-NNS*8]
+    addps    m1, [r1+i*8+16]
+    SIGMOID  m1, m2
+    EXP2     m0, m2, m3
     mulps    m1, m0
     addps    m5, m0
     addps    m6, m1
