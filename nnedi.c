@@ -345,7 +345,7 @@ static void cast_pixels_test(int16_t *dst, const uint8_t *src, intptr_t stride)
 #undef ROW
 }
 
-static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean, float *stddev, float *invstddev)
+static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean_stddev_inv)
 {
     int sum = 0, sum2 = 0;
 #if 0
@@ -407,14 +407,14 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
         :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
     );
 #endif
-    float bias = *mean = sum*(1/48.f);
+    float bias = mean_stddev_inv[0] = sum*(1/48.f);
     float var = sum2*(1/48.f) - bias*bias;
     if(var > FLT_EPSILON) {
-        *invstddev = rsqrtss(var);
-        *stddev = rcpss(*invstddev);
+        float invstddev = mean_stddev_inv[2] = rsqrtss(var);
+        mean_stddev_inv[1] = rcpss(invstddev);
     } else {
-        *invstddev = 0;
-        *stddev = 0;
+        mean_stddev_inv[1] = 0;
+        mean_stddev_inv[2] = 0;
     }
 
 #define ROW(dst, src)\
@@ -812,10 +812,10 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         for(int x=0; x<width; x++) {
             if(!tested2[x]) {
                 START_TIMER;
-                float mean, stddev, invstddev;
-                cast_pixels_scale(ibuf, src+(y-2)*sstride+x-3, sstride, &mean, &stddev, &invstddev);
-                float v = nnedi_scale_net_sse2(scale_weights_i, scale_weights_f, ibuf, invstddev);
-                dst[(y*2+1)*dstride+x] = av_clip_uint8(v*stddev+mean+.5f);
+                float mean_stddev_inv[3];
+                cast_pixels_scale(ibuf, src+(y-2)*sstride+x-3, sstride, mean_stddev_inv);
+                float v = nnedi_scale_net_sse2(scale_weights_i, scale_weights_f, ibuf, mean_stddev_inv[2]);
+                dst[(y*2+1)*dstride+x] = av_clip_uint8(v*mean_stddev_inv[1]+mean_stddev_inv[0]+.5f);
                 STOP_TIMER("scale");
             }
         }
