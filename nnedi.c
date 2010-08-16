@@ -446,18 +446,27 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
 // or try forcing everything to the same scaling factor to eliminate a few multiplies from scale_net.
 static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src)
 {
-    for(int j=0; j<4; j++, src+=48, dsti+=48, dsti_transpose+=48) {
+    for(int j=0; j<4; j++, src+=48) {
         float max = 0;
         int sum = 0;
         for(int i=0; i<48; i++)
             max = fmaxf(max, fabsf(src[i]));
         float scale = 0x3fff/max;
         for(int i=0; i<48; i++)
-            sum += dsti[i] = dsti_transpose[i/12+i%12*4] = roundf(src[i]*scale);
+            sum += dsti[48*j+i] = dsti_transpose[48*j+i/12+i%12*4] = roundf(src[i]*scale);
         dstf[j] = max/(0x3fff*127.5f);
         dstf[j+4] = sum*dstf[j]/48;
     }
     memcpy(dstf+8, src, 60*sizeof(float));
+
+    // transpose weights into the order that asm wants
+    int16_t b[48*4];
+    for(int i=0; i<48*4; i++)
+        b[i] = dsti[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
+    memcpy(dsti, b, sizeof(b));
+    for(int i=0; i<48*4; i++)
+        b[i] = dsti_transpose[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
+    memcpy(dsti_transpose, b, sizeof(b));
 }
 
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
@@ -753,6 +762,7 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 }
 
 
+int nnedi_test_net_sse2(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float mean);
 int nnedi_scale_one_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
 
 static struct {
@@ -806,7 +816,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             for(; x<width; x+=2) {
                 START_TIMER;
                 shift_testblock(ibuf, pix+x, sstride);
-                pt[x/2] = test_net(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
+                pt[x/2] = nnedi_test_net_sse2(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
                 STOP_TIMER("test1");
             }
         }
@@ -817,7 +827,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             START_TIMER;
             int x = retest[i];
             cast_pixels_test(ibuf, pix+x, sstride);
-            tested2[x] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
+            tested2[x] = nnedi_test_net_sse2(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
             STOP_TIMER("test2");
         }
         if(dst != src)

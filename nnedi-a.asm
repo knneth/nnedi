@@ -49,8 +49,23 @@ INIT_XMM
     paddd      %1, %4
 %endmacro
 
+%macro HADDPS_X4 5 ; dst, s0, s1, s2, s3
+    movaps     %1, %2
+    punpcklqdq %2, %3
+    punpckhqdq %1, %3
+    addps      %1, %2
+    movaps     %2, %4
+    punpcklqdq %4, %5
+    punpckhqdq %2, %5
+    addps      %2, %4
+    movaps     %4, %1
+    shufps     %1, %2, 0x88
+    shufps     %4, %2, 0xdd
+    addps      %1, %4
+%endmacro
 
-%macro NOP_PAD 0
+
+%macro NOP_PAD 0 ; FIXME remove
 ;   times (($-$$)&15)/14 nop
 ;   times (($-$$)&15)/15 nop
 %endmacro
@@ -84,7 +99,7 @@ INIT_XMM
     CAT_XDEFINE used, %%i, 1
 %endmacro
 
-%macro DOTP_MUL  1
+%macro DOTP_MUL 1
     NOP_PAD
     %assign %%n %1
     %assign %%j 10 + (%%n / 16)
@@ -110,7 +125,7 @@ INIT_XMM
 
 cglobal dotproducts
 %define stride 48*2
-%assign offset 128
+%assign offset 128 ; FIXME could be 0 (possibly without any loss)
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_LOAD 2
@@ -136,6 +151,41 @@ cglobal dotproducts
     mova  [r2+32], m2
     mova  [r2+48], m3
     add        r2, 64
+    ret
+
+
+%macro DOTP_MUL2 1
+    NOP_PAD
+    %assign %%n %1
+    %assign %%j 10 + (%%n / 4)
+    %assign %%i tmp %+ %%n
+    pmaddwd m %+ %%i, m %+ %%j
+%endmacro
+
+cglobal dotproduct_x4
+%assign offset 0
+    SWAP 0, 4
+    ; FIXME this ordering isn't doing as much good as I might expect
+    DOTP_LOAD 0
+    DOTP_LOAD 1
+    DOTP_LOAD 2
+    DOTP_MUL2 0
+    DOTP_LOAD 3
+    DOTP_MUL2 1
+%assign i 0
+%rep 20
+    DOTP_LOAD i+4
+    DOTP_ACC  i+0
+    DOTP_MUL2 i+2
+%assign i i+1
+%endrep
+    DOTP_ACC  20
+    DOTP_MUL2 22
+    DOTP_ACC  21
+    DOTP_MUL2 23
+    DOTP_ACC  22
+    DOTP_ACC  23
+    HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above; or do multiple test_nets at once.
     ret
 
 
@@ -297,3 +347,65 @@ cglobal scale_one_sse2, 4,6,16
     add rsp, NNS*8+24
     RET
 
+
+
+; int test_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float mean)
+cglobal test_net_sse2, 3,6,16
+    mova    m10, [r2+0x00]
+    mova    m11, [r2+0x10]
+    mova    m12, [r2+0x20]
+    mova    m13, [r2+0x30]
+    mova    m14, [r2+0x40]
+    mova    m15, [r2+0x50]
+    pshufd   m9, m0, 0 ; mean
+    call dotproduct_x4
+    cvtdq2ps m0, m0
+    mulps    m9, [r1+0x10]
+    mulps    m0, [r1+0x00]
+    subps    m0, m9
+    addps    m0, [r1+0x20]
+    movaps   m_1,   [ps_1]
+    movaps   m_abs, [ps_abs]
+    SIGMOID  m0, m1
+    movaps   m2, [r1+0x30]
+    movaps   m3, [r1+0x40]
+    movaps   m4, [r1+0x50]
+    movaps   m5, [r1+0x60]
+    mulps    m2, m0
+    mulps    m3, m0
+    mulps    m4, m0
+    mulps    m5, m0
+    HADDPS_X4 m1, m2, m3, m4, m5
+    addps    m1, [r1+0x70]
+    add      r1, 0x80
+    SIGMOID  m1, m2
+    movaps   m2, [r1+0x00]
+    movaps   m6, [r1+0x10]
+    mulps    m2, m0
+    mulps    m6, m1
+    addps    m2, m6
+    movaps   m3, [r1+0x20]
+    movaps   m7, [r1+0x30]
+    mulps    m3, m0
+    mulps    m7, m1
+    addps    m3, m7
+    movaps   m4, [r1+0x40]
+    movaps   m8, [r1+0x50]
+    mulps    m4, m0
+    mulps    m8, m1
+    addps    m4, m8
+    movaps   m5, [r1+0x60]
+    movaps   m9, [r1+0x70]
+    mulps    m5, m0
+    mulps    m9, m1
+    addps    m5, m9
+    HADDPS_X4 m0, m2, m3, m4, m5
+    addps    m0, [r1+0x80]
+    SIGMOID  m0, m1
+    pshufd   m1, m0, 0xa0 ; could be a pshuflw if I reordered the weights
+    maxps    m0, m1
+    movhlps  m1, m0
+    xor     eax, eax
+    comiss   m0, m1
+    seta     al
+    RET
