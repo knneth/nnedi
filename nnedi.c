@@ -804,17 +804,21 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             int x = !(testy&1);
             init_testblock(ibuf, pix+x-12, sstride);
             for(; x<width; x+=2) {
+                START_TIMER;
                 shift_testblock(ibuf, pix+x, sstride);
                 pt[x/2] = test_net(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
+                STOP_TIMER("test1");
             }
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
         uint8_t *pix = src+(y-1)*sstride-5;
         for(int i=0; i<nretest; i++) {
+            START_TIMER;
             int x = retest[i];
             cast_pixels_test(ibuf, pix+x, sstride);
             tested2[x] = test_net(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
+            STOP_TIMER("test2");
         }
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
@@ -823,10 +827,8 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         uint8_t *dpix = dst+(y*2+1)*dstride;
         for(int x=0; x<width; x++) {
             if(!tested2[x]) {
-                START_TIMER;
                 int v = nnedi_scale_one_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
                 dpix[x] = av_clip_uint8(v);
-                STOP_TIMER("scale");
             }
         }
     }
