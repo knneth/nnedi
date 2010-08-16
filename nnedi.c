@@ -468,13 +468,23 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
     memcpy(dstf+8, src, 60*sizeof(float));
 
     // transpose weights into the order that asm wants
-    int16_t b[48*4];
-    for(int i=0; i<48*4; i++)
+    int16_t b[48*4], c[48*4];
+    float d[16], e[32];
+    for(int i=0; i<48*4; i++) {
         b[i] = dsti[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
+        c[i] = dsti_transpose[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
+    }
+    for(int i=0; i<16; i++)
+        d[i] = dstf[12 + (i&3)*4 + ((i+(i>>2))&3)];
+    for(int i=40; i<48; i++)
+        FFSWAP(float, dstf[i], dstf[i+8]);
+    FFSWAP(float, dstf[65], dstf[66]);
+    for(int i=0; i<32; i++)
+        e[i] = dstf[32 + ((i>>2)&4) + (i&3)*8 + ((i+(i>>2))&3)];
     memcpy(dsti, b, sizeof(b));
-    for(int i=0; i<48*4; i++)
-        b[i] = dsti_transpose[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
-    memcpy(dsti_transpose, b, sizeof(b));
+    memcpy(dsti_transpose, c, sizeof(c));
+    memcpy(dstf+12, d, sizeof(d));
+    memcpy(dstf+32, e, sizeof(e));
 }
 
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)

@@ -406,54 +406,56 @@ cglobal shift_testblock_sse2, 2,4
 
 ; int test_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float mean)
 cglobal test_net_sse2, 3,6,16
+    add      r1, 0x80
     pshufd   m9, m0, 0 ; mean
     call dotproduct_x4
+    mulps    m9, [r1-0x70]
     cvtdq2ps m0, m0
-    mulps    m9, [r1+0x10]
-    mulps    m0, [r1+0x00]
+    subps    m9, [r1-0x60]
+    mulps    m0, [r1-0x80]
     subps    m0, m9
-    addps    m0, [r1+0x20]
     movaps   m_1,   [ps_1]
     movaps   m_abs, [ps_abs]
-    SIGMOID  m0, m1
-    movaps   m2, [r1+0x30]
-    movaps   m3, [r1+0x40]
-    movaps   m4, [r1+0x50]
-    movaps   m5, [r1+0x60]
-    mulps    m2, m0
-    mulps    m3, m0
-    mulps    m4, m0
-    mulps    m5, m0
-    HADDPS_X4 m1, m2, m3, m4, m5
-    addps    m1, [r1+0x70]
-    add      r1, 0x80
-    SIGMOID  m1, m2
-    movaps   m2, [r1+0x00]
-    movaps   m6, [r1+0x10]
-    mulps    m2, m0
-    mulps    m6, m1
-    addps    m2, m6
-    movaps   m3, [r1+0x20]
-    movaps   m7, [r1+0x30]
-    mulps    m3, m0
-    mulps    m7, m1
-    addps    m3, m7
-    movaps   m4, [r1+0x40]
-    movaps   m8, [r1+0x50]
-    mulps    m4, m0
-    mulps    m8, m1
-    addps    m4, m8
-    movaps   m5, [r1+0x60]
-    movaps   m6, [r1+0x70]
-    mulps    m5, m0
-    mulps    m6, m1
-    addps    m5, m6
-    HADDPS_X4 m0, m2, m3, m4, m5
+    movaps   m1, [r1-0x50]
+    SIGMOID  m0, m4
+    pshufd   m5, m0, 0x39
+    movaps   m2, [r1-0x40]
+    pshufd   m6, m0, 0x4e
+    mulps    m1, m0
+    movaps   m3, [r1-0x30]
+    pshufd   m7, m0, 0x93
+    mulps    m2, m5
+    movaps   m4, [r1-0x20]
+    mulps    m3, m6
+    addps    m1, [r1-0x10]
+    mulps    m4, m7
+    addps    m2, m3
+    mulps    m0, [r1+0x00]
+    addps    m1, m4
+    mulps    m5, [r1+0x10]
+    addps    m1, m2
+    mulps    m6, [r1+0x20]
+    SIGMOID  m1, m8
+    mulps    m7, [r1+0x30]
+    pshufd   m2, m1, 0x39
     addps    m0, [r1+0x80]
+    addps    m0, m5
+    pshufd   m3, m1, 0x4e
+    addps    m6, m7
+    pshufd   m4, m1, 0x93
+    mulps    m1, [r1+0x40]
+    addps    m0, m6
+    mulps    m2, [r1+0x50]
+    addps    m0, m1
+    mulps    m3, [r1+0x60]
+    mulps    m4, [r1+0x70]
+    addps    m2, m3
+    addps    m0, m4
+    addps    m0, m2
     SIGMOID  m0, m1
-    pshufd   m1, m0, 0xa0 ; could be a pshuflw if I reordered the weights
-    maxps    m0, m1
     movhlps  m1, m0
+    maxps    m0, m1
+    pshuflw  m1, m0, 0xe
     xor     eax, eax
     comiss   m0, m1
     seta     al
