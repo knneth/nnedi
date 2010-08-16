@@ -290,6 +290,14 @@ static void init_testblock(int16_t *block, uint8_t *src, int stride)
     for(int y=0; y<4; y++)
         for(int x=2; x<12; x++)
             block[x*4+y] = src[x+y*stride];
+    asm volatile(
+        "movdqa 16(%0), %%xmm11 \n"
+        "movdqa 32(%0), %%xmm12 \n"
+        "movdqa 48(%0), %%xmm13 \n"
+        "movdqa 64(%0), %%xmm14 \n"
+        "movdqa 80(%0), %%xmm15 \n"
+        ::"r"(block), "m"(*(struct {int16_t x[48];}*)block)
+    );
 }
 
 static void shift_testblock(int16_t *block, uint8_t *src, int stride)
@@ -762,6 +770,8 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 }
 
 
+void nnedi_cast_testblock_sse2(uint8_t *pix, int stride);
+void nnedi_shift_testblock_sse2(uint8_t *pix, int stride);
 int nnedi_test_net_sse2(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float mean);
 int nnedi_scale_one_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
 
@@ -815,7 +825,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             init_testblock(ibuf, pix+x-12, sstride);
             for(; x<width; x+=2) {
                 START_TIMER;
-                shift_testblock(ibuf, pix+x, sstride);
+                nnedi_shift_testblock_sse2(pix+x, sstride);
                 pt[x/2] = nnedi_test_net_sse2(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
                 STOP_TIMER("test1");
             }
@@ -826,7 +836,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         for(int i=0; i<nretest; i++) {
             START_TIMER;
             int x = retest[i];
-            cast_pixels_test(ibuf, pix+x, sstride);
+            nnedi_cast_testblock_sse2(pix+x, sstride);
             tested2[x] = nnedi_test_net_sse2(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
             STOP_TIMER("test2");
         }

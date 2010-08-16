@@ -349,14 +349,63 @@ cglobal scale_one_sse2, 4,6,16
 
 
 
+; FIXME keeps data in xmmregs across function calls, which isn't win64 compatible
+; void cast_testblock(uint8_t *pix, int stride)
+cglobal cast_testblock_sse2, 2,4
+    lea        r2, [r1*3]
+    movq      m10, [r0]
+    movd      m11, [r0+8]
+    movd       m1, [r0+r1]
+    movq      m12, [r0+r1+4]
+    movq      m13, [r0+r1*2]
+    movd      m14, [r0+r1*2+8]
+    movd       m2, [r0+r2]
+    movq      m15, [r0+r2+4]
+    pxor       m0, m0
+    punpckldq m11, m1
+    punpckldq m14, m2
+    punpcklbw m10, m0
+    punpcklbw m12, m0
+    punpcklbw m13, m0
+    punpcklbw m11, m0
+    punpcklbw m14, m0
+    punpcklbw m15, m0
+    RET
+
+; void shift_testblock(uint8_t *pix, int stride)
+cglobal shift_testblock_sse2, 2,4
+%define buf rsp-24
+    lea      r2, [r1*3]
+    movzx   r3d, byte [r0]
+    mov     [buf+0], r3w
+    movzx   r3d, byte [r0+r1]
+    mov     [buf+2], r3w
+    movzx   r3d, byte [r0+r1*2]
+    mov     [buf+4], r3w
+    movzx   r3d, byte [r0+r2]
+    mov     [buf+6], r3w
+    movzx   r3d, byte [r0+1]
+    mov     [buf+8], r3w
+    movzx   r3d, byte [r0+r1+1]
+    mov     [buf+10], r3w
+    movzx   r3d, byte [r0+r1*2+1]
+    mov     [buf+12], r3w
+    movzx   r3d, byte [r0+r2+1]
+    mov     [buf+14], r3w
+    mova    m10, m11
+    mova    m11, m12
+    mova    m12, m13
+    mova    m13, m14
+    mova    m14, m15
+    mova    m15, [buf]
+    RET
+
+
+%define m_1   m9
+%define m_abs m10
+
 ; int test_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float mean)
 cglobal test_net_sse2, 3,6,16
-    mova    m10, [r2+0x00]
-    mova    m11, [r2+0x10]
-    mova    m12, [r2+0x20]
-    mova    m13, [r2+0x30]
-    mova    m14, [r2+0x40]
-    mova    m15, [r2+0x50]
     pshufd   m9, m0, 0 ; mean
     call dotproduct_x4
     cvtdq2ps m0, m0
@@ -395,10 +444,10 @@ cglobal test_net_sse2, 3,6,16
     mulps    m8, m1
     addps    m4, m8
     movaps   m5, [r1+0x60]
-    movaps   m9, [r1+0x70]
+    movaps   m6, [r1+0x70]
     mulps    m5, m0
-    mulps    m9, m1
-    addps    m5, m9
+    mulps    m6, m1
+    addps    m5, m6
     HADDPS_X4 m0, m2, m3, m4, m5
     addps    m0, [r1+0x80]
     SIGMOID  m0, m1
