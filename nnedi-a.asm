@@ -452,7 +452,6 @@ cglobal test_net_sse2, 3,6,16
     addps    m2, m3
     addps    m0, m4
     addps    m0, m2
-    SIGMOID  m0, m1
     movhlps  m1, m0
     maxps    m0, m1
     pshuflw  m1, m0, 0xe
