@@ -835,12 +835,12 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             uint8_t *pt = tested+(testy%3)*tstride;
             uint8_t *pix = src+(testy-1)*sstride+5;
             int x = !(testy&1);
-            START_TIMER;
             init_testblock(ibuf, pix+x-12, sstride);
             for(; x<width; x+=2) {
                 nnedi_shift_testblock_sse2(pix+x, sstride);
                 test_dotp[x/2] = nnedi_test_dotproduct_sse2(test_weights_i_transpose);
             }
+            START_TIMER;
             float *mean = sum_12x4[testy&1]+!(testy&1);
             int end = (width+(testy&1))>>1;
             for(int x=0; x<end; x+=2)
@@ -850,12 +850,12 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
         uint8_t *pix = src+(y-1)*sstride-5;
-        START_TIMER;
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
             nnedi_cast_testblock_sse2(pix+x, sstride);
             test_dotp[i] = nnedi_test_dotproduct_sse2(test_weights_i);
         }
+        START_TIMER;
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
             tested2[x] = nnedi_test_net_sse2(test_weights_f, test_dotp[i], sum_12x4[y&1][x]);
