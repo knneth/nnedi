@@ -382,10 +382,10 @@ cglobal shift_testblock_sse2, 2,4
     RET
 
 
-; int test_net(const float *weightsf, v4si dotp, float mean)
+; int test_net(const float *weightsf, v4si dotp, float dc)
 cglobal test_net_sse2, 1,1
     add      r0, 0x80
-    pshufd   m9, m1, 0 ; mean
+    pshufd   m9, m1, 0 ; dc
     mulps    m9, [r0-0x70]
     cvtdq2ps m0, m0 ; dotp
     subps    m9, [r0-0x60]
@@ -475,7 +475,7 @@ cglobal test_net_sse2, 1,1
     addps    %1, m10
 %endmacro
 
-; int test_net_x4(const float *weightsf, const v4si *dotp, float mean0, float mean1, float mean2, float mean3)
+; int test_net_x4(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3)
 cglobal test_net_x4_sse2, 2,2
 %define buf rsp-0x88
     add      r0, 0x80
