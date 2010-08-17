@@ -162,7 +162,8 @@ cglobal dotproducts
     pmaddwd m %+ %%i, m %+ %%j
 %endmacro
 
-cglobal dotproduct_x4
+; v4si test_dotproduct(const int16_t *weightsi)
+cglobal test_dotproduct_sse2, 1,1
 %assign offset 0
     SWAP 0, 4
     ; FIXME this ordering isn't doing as much good as I might expect
@@ -404,51 +405,50 @@ cglobal shift_testblock_sse2, 2,4
 %define m_1   m9
 %define m_abs m10
 
-; int test_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float mean)
-cglobal test_net_sse2, 3,6,16
-    add      r1, 0x80
-    pshufd   m9, m0, 0 ; mean
-    call dotproduct_x4
-    mulps    m9, [r1-0x70]
-    cvtdq2ps m0, m0
-    subps    m9, [r1-0x60]
-    mulps    m0, [r1-0x80]
+; int test_net(const float *weightsf, v4si dotp, float mean)
+cglobal test_net_sse2, 1,1
+    add      r0, 0x80
+    pshufd   m9, m1, 0 ; mean
+    mulps    m9, [r0-0x70]
+    cvtdq2ps m0, m0 ; dotp
+    subps    m9, [r0-0x60]
+    mulps    m0, [r0-0x80]
     subps    m0, m9
     movaps   m_1,   [ps_1]
     movaps   m_abs, [ps_abs]
-    movaps   m1, [r1-0x50]
+    movaps   m1, [r0-0x50]
     SIGMOID  m0, m4
     pshufd   m5, m0, 0x39
-    movaps   m2, [r1-0x40]
+    movaps   m2, [r0-0x40]
     pshufd   m6, m0, 0x4e
     mulps    m1, m0
-    movaps   m3, [r1-0x30]
+    movaps   m3, [r0-0x30]
     pshufd   m7, m0, 0x93
     mulps    m2, m5
-    movaps   m4, [r1-0x20]
+    movaps   m4, [r0-0x20]
     mulps    m3, m6
-    addps    m1, [r1-0x10]
+    addps    m1, [r0-0x10]
     mulps    m4, m7
     addps    m2, m3
-    mulps    m0, [r1+0x00]
+    mulps    m0, [r0+0x00]
     addps    m1, m4
-    mulps    m5, [r1+0x10]
+    mulps    m5, [r0+0x10]
     addps    m1, m2
-    mulps    m6, [r1+0x20]
+    mulps    m6, [r0+0x20]
     SIGMOID  m1, m8
-    mulps    m7, [r1+0x30]
+    mulps    m7, [r0+0x30]
     pshufd   m2, m1, 0x39
-    addps    m0, [r1+0x80]
+    addps    m0, [r0+0x80]
     addps    m0, m5
     pshufd   m3, m1, 0x4e
     addps    m6, m7
     pshufd   m4, m1, 0x93
-    mulps    m1, [r1+0x40]
+    mulps    m1, [r0+0x40]
     addps    m0, m6
-    mulps    m2, [r1+0x50]
+    mulps    m2, [r0+0x50]
     addps    m0, m1
-    mulps    m3, [r1+0x60]
-    mulps    m4, [r1+0x70]
+    mulps    m3, [r0+0x60]
+    mulps    m4, [r0+0x70]
     addps    m2, m3
     addps    m0, m4
     addps    m0, m2

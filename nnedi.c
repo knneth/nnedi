@@ -782,7 +782,8 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 
 void nnedi_cast_testblock_sse2(uint8_t *pix, int stride);
 void nnedi_shift_testblock_sse2(uint8_t *pix, int stride);
-int nnedi_test_net_sse2(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float mean);
+v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi);
+int nnedi_test_net_sse2(const float *weightsf, v4si dotp, float mean);
 int nnedi_scale_one_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
 
 static struct {
@@ -808,6 +809,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     uint8_t *tested = memalign(16, 3*tstride+16); // FIXME only needs stride=align(tstride/2+2)
     uint8_t *tested2 = memalign(16, tstride+16);
     uint16_t *retest = memalign(16, (tstride+16)/2*sizeof(uint16_t));
+    v4si *test_dotp = memalign(16, tstride/2*sizeof(v4si));
     memset(tested, 0, 3*tstride+16);
     tested += 16;
     ALIGNED_16(int16_t test_weights_i[48*4]);
@@ -836,7 +838,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             init_testblock(ibuf, pix+x-12, sstride);
             for(; x<width; x+=2) {
                 nnedi_shift_testblock_sse2(pix+x, sstride);
-                pt[x/2] = nnedi_test_net_sse2(test_weights_i_transpose, test_weights_f, ibuf, sum_12x4[testy&1][x]);
+                pt[x/2] = nnedi_test_net_sse2(test_weights_f, nnedi_test_dotproduct_sse2(test_weights_i_transpose), sum_12x4[testy&1][x]);
             }
             STOP_TIMER("test1");
         }
@@ -847,7 +849,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
             nnedi_cast_testblock_sse2(pix+x, sstride);
-            tested2[x] = nnedi_test_net_sse2(test_weights_i, test_weights_f, ibuf, sum_12x4[y&1][x]);
+            tested2[x] = nnedi_test_net_sse2(test_weights_f, nnedi_test_dotproduct_sse2(test_weights_i), sum_12x4[y&1][x]);
         }
         STOP_TIMER("test2");
         if(dst != src)
@@ -870,6 +872,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     free(tested-16);
     free(tested2);
     free(retest);
+    free(test_dotp);
 }
 
 void upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
