@@ -845,6 +845,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             int end = (width+(testy&1))>>1;
             for(int x=0; x<end; x+=4)
                 *(uint32_t*)(pt+x) = nnedi_test_net_x4_sse2(test_weights_f, test_dotp+x, mean[x*2], mean[x*2+2], mean[x*2+4], mean[x*2+6]);
+            pt[end] = 0;
             STOP_TIMER("test1");
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
@@ -856,9 +857,18 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             test_dotp[i] = nnedi_test_dotproduct_sse2(test_weights_i);
         }
         START_TIMER;
-        for(int i=0; i<nretest; i++) {
-            int x = retest[i];
-            tested2[x] = nnedi_test_net_sse2(test_weights_f, test_dotp[i], sum_12x4[y&1][x]);
+        float *mean = sum_12x4[y&1];
+        retest[nretest] = retest[nretest+1] = retest[nretest+2] = width+1;
+        for(int i=0; i<nretest; i+=4) {
+            int x0 = retest[i+0];
+            int x1 = retest[i+1];
+            int x2 = retest[i+2];
+            int x3 = retest[i+3];
+            int v = nnedi_test_net_x4_sse2(test_weights_f, test_dotp+i, mean[x0], mean[x1], mean[x2], mean[x3]);
+            tested2[x0] = v;
+            tested2[x1] = v>>8;
+            tested2[x2] = v>>16;
+            tested2[x3] = v>>24;
         }
         STOP_TIMER("test2");
         if(dst != src)
