@@ -139,6 +139,7 @@ cglobal dotproducts
 %endmacro
 
 ; v4si test_dotproduct(const int16_t *weightsi)
+; FIXME elminate hadd, and maybe transpose to reduce reg count
 cglobal test_dotproduct_sse2, 1,1
 %assign offset 0
     SWAP 0, 4
@@ -307,6 +308,7 @@ cglobal scale_one_sse2, 4,6,16
 %assign i i+4
 %endrep
 
+    ; FIXME merge several instances? or is OOE enough?
     HADDPS   m0, m5
     movss    m2, [ss_5]
     HADDPS   m1, m6

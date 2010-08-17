@@ -840,13 +840,11 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
                 nnedi_shift_testblock_sse2(pix+x, sstride);
                 test_dotp[x/2] = nnedi_test_dotproduct_sse2(test_weights_i_transpose);
             }
-            START_TIMER;
             float *mean = sum_12x4[testy&1]+!(testy&1);
             int end = (width+(testy&1))>>1;
             for(int x=0; x<end; x+=4)
                 *(uint32_t*)(pt+x) = nnedi_test_net_x4_sse2(test_weights_f, test_dotp+x, mean[x*2], mean[x*2+2], mean[x*2+4], mean[x*2+6]);
             pt[end] = 0;
-            STOP_TIMER("test1");
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
@@ -856,7 +854,6 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             nnedi_cast_testblock_sse2(pix+x, sstride);
             test_dotp[i] = nnedi_test_dotproduct_sse2(test_weights_i);
         }
-        START_TIMER;
         float *mean = sum_12x4[y&1];
         retest[nretest] = retest[nretest+1] = retest[nretest+2] = width+1;
         for(int i=0; i<nretest; i+=4) {
@@ -870,18 +867,19 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             tested2[x2] = v>>16;
             tested2[x3] = v>>24;
         }
-        STOP_TIMER("test2");
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
         bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
         pix = src+(y-2)*sstride-3;
         uint8_t *dpix = dst+(y*2+1)*dstride;
+        START_TIMER;
         for(int x=0; x<width; x++) {
             if(!tested2[x]) {
                 int v = nnedi_scale_one_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
                 dpix[x] = av_clip_uint8(v);
             }
         }
+        STOP_TIMER("scale");
     }
     uint64_t t1 = read_time();
     printf("%d Mcycles\n", (int)((t1-t0)/1000000));
