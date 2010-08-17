@@ -696,7 +696,7 @@ static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
         "psraw         $6, %%xmm0 \n"
         "psraw         $6, %%xmm2 \n"
         "packuswb  %%xmm2, %%xmm0 \n"
-        "movdqu    %%xmm0, (%1,%0) \n" // FIXME alignment isn't guaranteed
+        "movdqu    %%xmm0, (%1,%0) \n"
         "add $16, %0 \n"
         "jl 1b \n"
         :"+&r"(i)
@@ -816,6 +816,7 @@ v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi);
 int nnedi_test_net_sse2(const float *weightsf, v4si dotp, float mean);
 int nnedi_test_net_x4_sse2(const float *weightsf, const v4si *dotp, float mean0, float mean1, float mean2, float mean3);
 int nnedi_scale_one_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
+void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, int stride, int width);
 
 static struct {
     int initted;
@@ -899,17 +900,15 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         }
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
-        bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
+        nnedi_bicubic_ssse3(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
         pix = src+(y-2)*sstride-3;
         uint8_t *dpix = dst+(y*2+1)*dstride;
-        START_TIMER;
         nretest = merge_test_runlength(retest, tested2, width);
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
             int v = nnedi_scale_one_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
             dpix[x] = av_clip_uint8(v);
         }
-        STOP_TIMER("scale");
     }
     uint64_t t1 = read_time();
     printf("%d Mcycles\n", (int)((t1-t0)/1000000));
