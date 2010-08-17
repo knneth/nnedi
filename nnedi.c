@@ -665,7 +665,7 @@ void nnedi_cast_testblock_sse2(uint8_t *pix, int stride);
 void nnedi_shift_testblock_sse2(uint8_t *pix, int stride);
 v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi);
 int nnedi_test_net_sse2(const float *weightsf, v4si dotp, float dc);
-int nnedi_test_net_x4_sse2(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3);
+int nnedi_test_net_x4_ssse3(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3);
 int nnedi_scale_one_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
 void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, int stride, int width);
 
@@ -725,7 +725,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             float *dc = sum_12x4[testy&1]+!(testy&1);
             int end = (width+(testy&1))>>1;
             for(int x=0; x<end; x+=4)
-                *(uint32_t*)(pt+x) = nnedi_test_net_x4_sse2(test_weights_f, test_dotp+x, dc[x*2], dc[x*2+2], dc[x*2+4], dc[x*2+6]);
+                *(uint32_t*)(pt+x) = nnedi_test_net_x4_ssse3(test_weights_f, test_dotp+x, dc[x*2], dc[x*2+2], dc[x*2+4], dc[x*2+6]);
             pt[end] = 0;
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
@@ -739,7 +739,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         float *dc = sum_12x4[y&1];
         retest[nretest] = retest[nretest+1] = retest[nretest+2] = width+1;
         for(int i=0; i<nretest; i+=4) {
-            uint32_t v = nnedi_test_net_x4_sse2(test_weights_f, test_dotp+i, dc[retest[i+0]], dc[retest[i+1]], dc[retest[i+2]], dc[retest[i+3]]);
+            uint32_t v = nnedi_test_net_x4_ssse3(test_weights_f, test_dotp+i, dc[retest[i+0]], dc[retest[i+1]], dc[retest[i+2]], dc[retest[i+3]]);
             tested2[retest[i+0]] = v;
             tested2[retest[i+1]] = v>>8;
             tested2[retest[i+2]] = v>>16;

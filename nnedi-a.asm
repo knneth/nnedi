@@ -476,7 +476,7 @@ cglobal test_net_sse2, 1,1
 %endmacro
 
 ; int test_net_x4(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3)
-cglobal test_net_x4_sse2, 2,2
+cglobal test_net_x4_ssse3, 2,2
 %define buf rsp-0x88
     add      r0, 0x80
     pshufd   m4, m0, 0
@@ -552,7 +552,7 @@ cglobal test_net_x4_sse2, 2,2
     mova     m2, [shuf_packdb]
     psubd    m0, m4
     psrld    m0, 31
-    pshufb   m0, m2 ; not sse2
+    pshufb   m0, m2 ; the only non-sse2 instruction
     movd    eax, m0
     RET
 
