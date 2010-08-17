@@ -605,3 +605,32 @@ cglobal bicubic_ssse3, 4,7
     BICUBIC_LOOP movu
     REP_RET
 
+
+
+; void block_sums_core(float *dst, uint16_t *src, int stride, int width)
+cglobal block_sums_core_sse2, 4,7
+    pxor      m2, m2
+    shl       r2, 1
+    lea       r1, [r1+r3*2]
+    lea       r0, [r0+r3*4-32]
+    lea       r4, [r1+r2]
+    lea       r5, [r1+r2*2]
+    lea       r6, [r4+r2*2]
+    neg       r3
+align 16
+.loop:
+    mova      m0, [r1+r3*2]
+    paddw     m0, [r4+r3*2]
+    paddw     m0, [r5+r3*2]
+    paddw     m0, [r6+r3*2]
+    add       r3, 8
+    mova      m1, m0
+    punpcklwd m0, m2
+    punpckhwd m1, m2
+    cvtdq2ps  m0, m0
+    cvtdq2ps  m1, m1
+    movaps    [r0+r3*4], m0
+    movaps    [r0+r3*4+16], m1
+    jl .loop
+    REP_RET
+

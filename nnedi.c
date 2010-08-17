@@ -538,6 +538,8 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     }
 }
 
+void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, int stride, int width);
+
 static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
 {
     int sum = 0;
@@ -548,20 +550,14 @@ static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int wi
     for(int i=1; i<n; i++)
         dst[i] = sum += src[i+width-1] - src[i-1];
     dst -= y*stride;
-    if(blocks)
-        for(int i=0; i<n; i+=8)
-            asm("movdqa (%3), %0 \n"
-                "paddw  (%3,%4,2), %0 \n"
-                "paddw  (%3,%4,4), %0 \n"
-                "paddw  (%3,%5,2), %0 \n"
-                "movdqa    %0, %1 \n"
-                "punpcklwd %2, %0 \n"
-                "punpckhwd %2, %1 \n"
-                "cvtdq2ps  %0, %0 \n"
-                "cvtdq2ps  %1, %1 \n"
-                :"=&x"(*(v4f*)&blocks[i]), "=&x"(*(v4f*)&blocks[i+4])
-                :"x"(splatpi(0)), "r"(dst+i), "r"(stride), "r"(stride*3)
-            );
+    if(blocks) {
+#if 0
+        for(int x=0; x<n; x++)
+            blocks[x] = dst[x] + dst[x+stride] + dst[x+stride*2] + dst[x+stride*3];
+#else
+        nnedi_block_sums_core_sse2(blocks, dst, stride, n);
+#endif
+    }
 }
 
 static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
