@@ -739,15 +739,11 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         float *dc = sum_12x4[y&1];
         retest[nretest] = retest[nretest+1] = retest[nretest+2] = width+1;
         for(int i=0; i<nretest; i+=4) {
-            int x0 = retest[i+0];
-            int x1 = retest[i+1];
-            int x2 = retest[i+2];
-            int x3 = retest[i+3];
-            int v = nnedi_test_net_x4_sse2(test_weights_f, test_dotp+i, dc[x0], dc[x1], dc[x2], dc[x3]);
-            tested2[x0] = v;
-            tested2[x1] = v>>8;
-            tested2[x2] = v>>16;
-            tested2[x3] = v>>24;
+            uint32_t v = nnedi_test_net_x4_sse2(test_weights_f, test_dotp+i, dc[retest[i+0]], dc[retest[i+1]], dc[retest[i+2]], dc[retest[i+3]]);
+            tested2[retest[i+0]] = v;
+            tested2[retest[i+1]] = v>>8;
+            tested2[retest[i+2]] = v>>16;
+            tested2[retest[i+3]] = v>>24;
         }
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
