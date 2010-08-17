@@ -838,8 +838,10 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             init_testblock(ibuf, pix+x-12, sstride);
             for(; x<width; x+=2) {
                 nnedi_shift_testblock_sse2(pix+x, sstride);
-                pt[x/2] = nnedi_test_net_sse2(test_weights_f, nnedi_test_dotproduct_sse2(test_weights_i_transpose), sum_12x4[testy&1][x]);
+                test_dotp[x/2] = nnedi_test_dotproduct_sse2(test_weights_i_transpose);
             }
+            for(int x=!(testy&1); x<width; x+=2)
+                pt[x/2] = nnedi_test_net_sse2(test_weights_f, test_dotp[x/2], sum_12x4[testy&1][x]);
             STOP_TIMER("test1");
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
@@ -849,7 +851,11 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
             nnedi_cast_testblock_sse2(pix+x, sstride);
-            tested2[x] = nnedi_test_net_sse2(test_weights_f, nnedi_test_dotproduct_sse2(test_weights_i), sum_12x4[y&1][x]);
+            test_dotp[i] = nnedi_test_dotproduct_sse2(test_weights_i);
+        }
+        for(int i=0; i<nretest; i++) {
+            int x = retest[i];
+            tested2[x] = nnedi_test_net_sse2(test_weights_f, test_dotp[i], sum_12x4[y&1][x]);
         }
         STOP_TIMER("test2");
         if(dst != src)
