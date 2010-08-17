@@ -302,19 +302,7 @@ static void init_testblock(int16_t *block, uint8_t *src, int stride)
 
 static void shift_testblock(int16_t *block, uint8_t *src, int stride)
 {
-//  memcpy(block, block+8, 40*sizeof(*block));
-    asm("movdqa      16(%0), %%xmm0 \n"
-        "movdqa      32(%0), %%xmm1 \n"
-        "movdqa      48(%0), %%xmm2 \n"
-        "movdqa      64(%0), %%xmm3 \n"
-        "movdqa      80(%0), %%xmm4 \n"
-        "movdqa      %%xmm0,   (%0) \n"
-        "movdqa      %%xmm1, 16(%0) \n"
-        "movdqa      %%xmm2, 32(%0) \n"
-        "movdqa      %%xmm3, 48(%0) \n"
-        "movdqa      %%xmm4, 64(%0) \n"
-        ::"r"(block)
-    );
+    memcpy(block, block+8, 40*sizeof(*block));
     for(int i=0; i<4; i++) {
         block[40+i] = src[i*stride];
         block[44+i] = src[i*stride+1];
@@ -323,98 +311,20 @@ static void shift_testblock(int16_t *block, uint8_t *src, int stride)
 
 static void cast_pixels_test(int16_t *dst, const uint8_t *src, intptr_t stride)
 {
-//  for(int y=0; y<4; y++)
-//      for(int x=0; x<12; x++)
-//          dst[y*12+x] = src[y*stride+x];
-
-#define ROW(dst, src0, src1)\
-        "movq      "src0", %%xmm0 \n"\
-        "movd    8+"src0", %%mm1 \n"\
-        "movd      "src1", %%mm2 \n"\
-        "movq    4+"src1", %%xmm3 \n"\
-        "punpcklbw %%xmm4, %%xmm0 \n"\
-        "punpcklbw  %%mm4, %%mm1 \n"\
-        "punpcklbw  %%mm4, %%mm2 \n"\
-        "punpcklbw %%xmm4, %%xmm3 \n"\
-        "movdqa %%xmm0,    "dst" \n"\
-        "movq    %%mm1, 16+"dst" \n"\
-        "movq    %%mm2, 24+"dst" \n"\
-        "movdqa %%xmm3, 32+"dst" \n"\
-
-    asm("pxor %%xmm4, %%xmm4 \n"
-        "pxor  %%mm4, %%mm4 \n"
-        ROW( "0(%1)", "0(%2)", "0(%2,%3)")
-        ROW("48(%1)", "0(%2,%3,2)", "0(%2,%4)")
-        "emms \n"
-        :"=m"(*(struct {int16_t x[48];}*)dst)
-        :"r"(dst), "r"(src), "r"(stride), "r"(stride*3)
-        :"xmm0", "mm1", "mm2", "xmm3"
-    );
-#undef ROW
+    for(int y=0; y<4; y++)
+        for(int x=0; x<12; x++)
+            dst[y*12+x] = src[y*stride+x];
 }
 
 static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean_stddev_inv)
 {
     int sum = 0, sum2 = 0;
-#if 0
     for(int y=0; y<6; y++)
         for(int x=0; x<8; x++) {
             int v = src[y*stride+x];
             sum += v;
             sum2 += v*v;
         }
-#else
-    asm("pxor       %%xmm0, %%xmm0 \n"
-        "movq    (%2),      %%xmm1 \n"
-        "movq    (%2,%3),   %%xmm3 \n"
-        "movdqa     %%xmm1, %%xmm2 \n"
-        "punpcklqdq %%xmm3, %%xmm2 \n"
-        "punpcklbw  %%xmm0, %%xmm1 \n"
-        "punpcklbw  %%xmm0, %%xmm3 \n"
-        "pmaddwd    %%xmm1, %%xmm1 \n"
-        "pmaddwd    %%xmm3, %%xmm3 \n"
-        "psadbw     %%xmm0, %%xmm2 \n"
-        "paddd      %%xmm3, %%xmm1 \n"
-
-        "movq    (%2,%3,2), %%xmm3 \n"
-        "movq    (%4),      %%xmm5 \n"
-        "movdqa     %%xmm3, %%xmm4 \n"
-        "punpcklqdq %%xmm5, %%xmm4 \n"
-        "punpcklbw  %%xmm0, %%xmm3 \n"
-        "punpcklbw  %%xmm0, %%xmm5 \n"
-        "pmaddwd    %%xmm3, %%xmm3 \n"
-        "pmaddwd    %%xmm5, %%xmm5 \n"
-        "psadbw     %%xmm0, %%xmm4 \n"
-        "paddd      %%xmm5, %%xmm3 \n"
-        "paddd      %%xmm4, %%xmm2 \n"
-        "paddd      %%xmm3, %%xmm1 \n"
-
-        "movq    (%4,%3),   %%xmm3 \n"
-        "movq    (%4,%3,2), %%xmm5 \n"
-        "movdqa     %%xmm3, %%xmm4 \n"
-        "punpcklqdq %%xmm5, %%xmm4 \n"
-        "punpcklbw  %%xmm0, %%xmm3 \n"
-        "punpcklbw  %%xmm0, %%xmm5 \n"
-        "pmaddwd    %%xmm3, %%xmm3 \n"
-        "pmaddwd    %%xmm5, %%xmm5 \n"
-        "psadbw     %%xmm0, %%xmm4 \n"
-        "paddd      %%xmm5, %%xmm3 \n"
-        "paddd      %%xmm4, %%xmm2 \n"
-        "paddd      %%xmm3, %%xmm1 \n"
-
-        "movhlps    %%xmm2, %%xmm4 \n"
-        "movhlps    %%xmm1, %%xmm3 \n"
-        "paddd      %%xmm4, %%xmm2 \n"
-        "paddd      %%xmm3, %%xmm1 \n"
-        "pshuflw $14,%%xmm1, %%xmm3 \n"
-        "paddd      %%xmm3, %%xmm1 \n"
-        "movd       %%xmm2, %0 \n"
-        "movd       %%xmm1, %1 \n"
-        :"=r"(sum), "=r"(sum2)
-        :"r"(src), "r"(stride), "r"(src+stride*3)
-        :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
-    );
-#endif
     int var = sum2*48-sum*sum;
     mean_stddev_inv[0] = sum*(1/48.f);
     if(var > 0) {
@@ -424,29 +334,9 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
         mean_stddev_inv[1] = 0;
         mean_stddev_inv[2] = 0;
     }
-
-#define ROW(dst, src)\
-        "movq       "src", %%xmm0 \n"\
-        "punpcklbw %%xmm3, %%xmm0 \n"\
-        "psllw         $4, %%xmm0 \n"\
-        "psubw     %%xmm2, %%xmm0 \n"\
-        "movdqa    %%xmm0, "dst"  \n"\
-
-    asm("movd            %5, %%xmm2 \n"
-        "pshuflw $0, %%xmm2, %%xmm2 \n"
-        "punpcklqdq  %%xmm2, %%xmm2 \n"
-        "pxor        %%xmm3, %%xmm3 \n"
-        ROW( "0(%1)", "0(%2)")
-        ROW("16(%1)", "0(%2,%4)")
-        ROW("32(%1)", "0(%2,%4,2)")
-        ROW("48(%1)", "0(%3)")
-        ROW("64(%1)", "0(%3,%4)")
-        ROW("80(%1)", "0(%3,%4,2)")
-        :"=m"(*(struct {int16_t x[48];}*)dst)
-        :"r"(dst), "r"(src), "r"(src+stride*3), "r"(stride), "r"((sum+1)/3)
-        :"xmm0", "xmm1", "xmm2", "xmm3"
-    );
-#undef ROW
+    for(int y=0; y<6; y++)
+        for(int x=0; x<8; x++)
+            *dst++ = src[y*stride+x]*16 - (sum+1)/3;
 }
 
 // FIXME cap scaling factors so that intermediate sums don't overflow; or allow 7fff if that works.
@@ -663,43 +553,8 @@ static int merge_test_runlength(uint16_t *retest, uint8_t *src, int n)
 
 static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
 {
-//  for(int x=0; x<n; x++)
-//      dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
-
-    ALIGNED_16(static const int8_t coef[16]) = {38,-6,38,-6,38,-6,38,-6,38,-6,38,-6,38,-6,38,-6};
-    ALIGNED_16(static const int16_t round[8]) = {32,32,32,32,32,32,32,32};
-    intptr_t i = -n;
-    asm volatile(
-        "movdqa        %6, %%xmm6 \n"
-        "movdqa        %7, %%xmm7 \n"
-        "1: \n"
-        "movdqa   (%3,%0), %%xmm0 \n"
-        "movdqa   (%4,%0), %%xmm1 \n"
-        "movdqa    %%xmm0, %%xmm2 \n"
-        "movdqa    %%xmm1, %%xmm3 \n"
-        "punpcklbw (%2,%0),%%xmm0 \n"
-        "punpcklbw (%5,%0),%%xmm1 \n"
-        "punpckhbw (%2,%0),%%xmm2 \n"
-        "punpckhbw (%5,%0),%%xmm3 \n"
-        "pmaddubsw %%xmm6, %%xmm0 \n"
-        "pmaddubsw %%xmm6, %%xmm1 \n"
-        "pmaddubsw %%xmm6, %%xmm2 \n"
-        "pmaddubsw %%xmm6, %%xmm3 \n"
-        "paddw     %%xmm7, %%xmm0 \n"
-        "paddw     %%xmm7, %%xmm2 \n"
-        "paddw     %%xmm1, %%xmm0 \n"
-        "paddw     %%xmm3, %%xmm2 \n"
-        "psraw         $6, %%xmm0 \n"
-        "psraw         $6, %%xmm2 \n"
-        "packuswb  %%xmm2, %%xmm0 \n"
-        "movdqu    %%xmm0, (%1,%0) \n"
-        "add $16, %0 \n"
-        "jl 1b \n"
-        :"+&r"(i)
-        :"r"(dst+n), "r"(src+n), "r"(src+stride+n), "r"(src+stride*2+n), "r"(src+stride*3+n),
-         "m"(*coef), "m"(*round)
-        :"xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "memory"
-    );
+    for(int x=0; x<n; x++)
+        dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
 }
 
 static void transpose8x8(uint8_t *dst, uint8_t *src, intptr_t dstride, intptr_t sstride)
