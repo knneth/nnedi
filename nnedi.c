@@ -784,7 +784,7 @@ void nnedi_cast_testblock_sse2(uint8_t *pix, int stride);
 void nnedi_shift_testblock_sse2(uint8_t *pix, int stride);
 v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi);
 int nnedi_test_net_sse2(const float *weightsf, v4si dotp, float mean);
-int nnedi_test_net_x2_sse2(const float *weightsf, v4si dotp0, v4si dotp1, float mean0, float mean1);
+int nnedi_test_net_x4_sse2(const float *weightsf, const v4si *dotp, float mean0, float mean1, float mean2, float mean3);
 int nnedi_scale_one_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
 
 static struct {
@@ -843,8 +843,8 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             START_TIMER;
             float *mean = sum_12x4[testy&1]+!(testy&1);
             int end = (width+(testy&1))>>1;
-            for(int x=0; x<end; x+=2)
-                *(uint16_t*)(pt+x) = nnedi_test_net_x2_sse2(test_weights_f, test_dotp[x], test_dotp[x+1], mean[x*2], mean[x*2+2]);
+            for(int x=0; x<end; x+=4)
+                *(uint32_t*)(pt+x) = nnedi_test_net_x4_sse2(test_weights_f, test_dotp+x, mean[x*2], mean[x*2+2], mean[x*2+4], mean[x*2+6]);
             STOP_TIMER("test1");
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);

@@ -8,6 +8,7 @@ ps_exp_c1:   times 4 dd 0.701277797 ; 1.01173*M_LN2
 ps_exp_c2:   times 4 dd 0.237348593 ; 0.49401*M_LN2*M_LN2
 ps_1:        times 4 dd 1.0
 ps_abs:      times 4 dd 0x7fffffff
+shuf_packdb  db 0,4,8,12,0,0,0,0,0,0,0,0,0,0,0,0
 ss_5:        dd 5.0
 ss_48        dd 48.0
 ss_1_3:      dd 0.3333333333
@@ -49,29 +50,7 @@ INIT_XMM
     paddd      %1, %4
 %endmacro
 
-%macro HADDPS_X4 5 ; dst, s0, s1, s2, s3
-    movaps     %1, %2
-    punpcklqdq %2, %3
-    punpckhqdq %1, %3
-    addps      %1, %2
-    movaps     %2, %4
-    punpcklqdq %4, %5
-    punpckhqdq %2, %5
-    addps      %2, %4
-    movaps     %4, %1
-    shufps     %1, %2, 0x88
-    shufps     %4, %2, 0xdd
-    addps      %1, %4
-%endmacro
-
-
-%macro NOP_PAD 0 ; FIXME remove
-;   times (($-$$)&15)/14 nop
-;   times (($-$$)&15)/15 nop
-%endmacro
-
 %macro DOTP_LOAD 1
-    NOP_PAD
     %assign %%n %1 ; turn arg into a literal number so that it can be used in names
     %if %%n < 4
         %assign %%i %%n
@@ -100,7 +79,6 @@ INIT_XMM
 %endmacro
 
 %macro DOTP_MUL 1
-    NOP_PAD
     %assign %%n %1
     %assign %%j 10 + (%%n / 16)
     %assign %%i tmp %+ %%n
@@ -112,7 +90,6 @@ INIT_XMM
 %endmacro
 
 %macro DOTP_ACC 1
-    NOP_PAD
     %assign %%n %1
     %assign %%i tmp %+ %%n
     %if %%n >= 4
@@ -155,7 +132,6 @@ cglobal dotproducts
 
 
 %macro DOTP_MUL2 1
-    NOP_PAD
     %assign %%n %1
     %assign %%j 10 + (%%n / 4)
     %assign %%i tmp %+ %%n
@@ -457,117 +433,121 @@ cglobal test_net_sse2, 1,1
     seta     al
     RET
 
-; int test_net_x2(const float *weightsf, v4si dotp0, v4si dotp1, float mean0, float mean1)
-cglobal test_net_x2_sse2, 1,1
-    add      r0, 0x80
 
-    movaps   m5, [r0-0x70]
-    pshufd   m2, m2, 0 ; mean0
-    pshufd   m3, m3, 0 ; mean1
-    movaps   m4, [r0-0x60]
-    movaps   m6, [r0-0x80]
-    mulps    m2, m5
-    mulps    m3, m5
-    cvtdq2ps m0, m0 ; dotp0
-    cvtdq2ps m1, m1 ; dotp1
-    subps    m2, m4
-    subps    m3, m4
-    mulps    m0, m6
-    mulps    m1, m6
+%macro DOTP0 2
+    pshufd   m8, %1, 0x39
+    pshufd   m9, %1, 0x4e
+    pshufd  m10, %1, 0x93
+    mova    m11, m8
+    mova    m12, m9
+    mova    m13, m10
+    mulps    m8, [r0-0x40]
+    mulps    m9, [r0-0x30]
+    mulps   m10, [r0-0x20]
+    mulps    %1, [r0+0x00]
+    mulps   m11, [r0+0x10]
+    mulps   m12, [r0+0x20]
+    mulps   m13, [r0+0x30]
+    addps    %2, m8
+    addps    %2, m9
+    addps    %2, m10
+    addps    %1, [r0+0x80]
+    addps    %1, m11
+    addps    %1, m12
+    addps    %1, m13
+%endmacro
+
+%macro DOTP1 2
+    pshufd   m8, %2, 0x39
+    pshufd   m9, %2, 0x4e
+    pshufd   m10, %2, 0x93
+    mulps    %2, [r0+0x40]
+    mulps    m8, [r0+0x50]
+    mulps    m9, [r0+0x60]
+    mulps    m10, [r0+0x70]
+    addps    %1, %2
+    addps    %1, m8
+    addps    %1, m9
+    addps    %1, m10
+%endmacro
+
+; int test_net_x4(const float *weightsf, const v4si *dotp, float mean0, float mean1, float mean2, float mean3)
+cglobal test_net_x4_sse2, 2,2
+%define buf rsp-0x88
+    add      r0, 0x80
+    pshufd   m4, m0, 0
+    pshufd   m5, m1, 0
+    pshufd   m6, m2, 0
+    pshufd   m7, m3, 0
+    movaps   m8, [r0-0x60]
+    movaps   m9, [r0-0x70]
+    movaps  m10, [r0-0x80]
+    cvtdq2ps m0, [r1+0x00]
+    cvtdq2ps m1, [r1+0x10]
+    cvtdq2ps m2, [r1+0x20]
+    cvtdq2ps m3, [r1+0x30]
+    mulps    m4, m9
+    mulps    m5, m9
+    mulps    m6, m9
+    mulps    m7, m9
+    subps    m4, m8
+    subps    m5, m8
+    subps    m6, m8
+    subps    m7, m8
+    mulps    m0, m10
+    mulps    m1, m10
+    mulps    m2, m10
+    mulps    m3, m10
     movaps   m_1,   [ps_1]
     movaps   m_abs, [ps_abs]
-    subps    m0, m2
-    subps    m1, m3
-    SIGMOID  m0, m5
-    SIGMOID  m1, m7
-    movaps   m2, [r0-0x50]
-    movaps   m4, [r0-0x40]
-    movaps   m6, [r0-0x30]
-    movaps   m8, [r0-0x20]
-    movaps   m3, m2
-    movaps   m5, m4
-    movaps   m7, m6
-    movaps   m9, m8
-    pshufd   m10, m0, 0x39
-    pshufd   m11, m1, 0x39
-    pshufd   m12, m0, 0x4e
-    pshufd   m13, m1, 0x4e
-    pshufd   m14, m0, 0x93
-    pshufd   m15, m1, 0x93
-    mulps    m2, m0
-    mulps    m3, m1
-    mulps    m4, m10
-    mulps    m5, m11
-    mulps    m6, m12
-    mulps    m7, m13
-    mulps    m8, m14
-    mulps    m9, m15
-    addps    m2, [r0-0x10]
-    addps    m3, [r0-0x10]
-    addps    m4, m6
-    addps    m5, m7
-    addps    m2, m8
-    addps    m3, m9
-    addps    m2, m4
-    addps    m3, m5
-    movaps   m6, [r0+0x00]
-    movaps   m7, [r0+0x10]
-    movaps   m8, [r0+0x20]
-    movaps   m9, [r0+0x30]
-    movaps   m5, [r0+0x80]
-    mulps    m0, m6
-    mulps    m1, m6
-    mulps    m10, m7
-    mulps    m11, m7
-    mulps    m12, m8
-    mulps    m13, m8
-    mulps    m14, m9
-    mulps    m15, m9
-    addps    m0, m5
-    addps    m1, m5
-    addps    m0, m10
-    addps    m1, m11
-    addps    m12, m14
-    addps    m13, m15
-    addps    m0, m12
-    addps    m1, m13
-    movaps   m_1,   [ps_1]
-    movaps   m_abs, [ps_abs]
+    subps    m0, m4
+    subps    m1, m5
+    subps    m2, m6
+    subps    m3, m7
+    SIGMOID  m0, m4
+    SIGMOID  m1, m4
     SIGMOID  m2, m4
-    SIGMOID  m3, m5
-    pshufd   m4, m2, 0x39
-    pshufd   m5, m3, 0x39
-    pshufd   m6, m2, 0x4e
-    pshufd   m7, m3, 0x4e
-    pshufd   m8, m2, 0x93
-    pshufd   m9, m3, 0x93
-    mulps    m2, [r0+0x40]
-    mulps    m3, [r0+0x40]
-    mulps    m4, [r0+0x50]
-    mulps    m5, [r0+0x50]
-    mulps    m6, [r0+0x60]
-    mulps    m7, [r0+0x60]
-    mulps    m8, [r0+0x70]
-    mulps    m9, [r0+0x70]
-    addps    m0, m2
-    addps    m1, m3
-    addps    m4, m6
-    addps    m5, m7
-    addps    m0, m8
-    addps    m1, m9
-    addps    m0, m4
-    addps    m1, m5
-    movhlps  m2, m0
-    movhlps  m3, m1
-    maxps    m0, m2
-    maxps    m1, m3
-    pshuflw  m2, m0, 0xe
-    pshuflw  m3, m1, 0xe
-    xor     r1d, r1d
-    xor     eax, eax
-    comiss   m0, m2
-    seta    r1b
-    comiss   m1, m3
-    seta     ah
-    or      eax, r1d
+    SIGMOID  m3, m4
+    movaps   m4, m0
+    movaps   m5, m1
+    mulps    m4, [r0-0x50]
+    mulps    m5, [r0-0x50]
+    addps    m4, [r0-0x10]
+    addps    m5, [r0-0x10]
+    DOTP0    m0, m4
+    DOTP0    m1, m5
+    SIGMOID  m4, m8
+    SIGMOID  m5, m8
+    movaps   m6, m2
+    movaps   m7, m3
+    mulps    m6, [r0-0x50]
+    mulps    m7, [r0-0x50]
+    addps    m6, [r0-0x10]
+    addps    m7, [r0-0x10]
+    DOTP0    m2, m6
+    DOTP0    m3, m7
+    SIGMOID  m6, m8
+    SIGMOID  m7, m8
+    DOTP1    m0, m4
+    DOTP1    m1, m5
+    DOTP1    m2, m6
+    DOTP1    m3, m7
+    movaps     m4, m0
+    punpcklqdq m0, m1 ; unpcklpd?
+    punpckhqdq m4, m1
+    maxps      m4, m0
+    movaps     m0, m2
+    punpcklqdq m2, m3
+    punpckhqdq m0, m3
+    maxps      m2, m0
+    movaps   m0, m4
+    shufps   m4, m2, 0x88
+    shufps   m0, m2, 0xdd
+    andps    m0, m_abs
+    andps    m4, m_abs
+    mova     m2, [shuf_packdb]
+    psubd    m0, m4
+    psrld    m0, 31
+    pshufb   m0, m2 ; not sse2
+    movd    eax, m0
     RET
