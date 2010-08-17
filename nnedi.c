@@ -635,6 +635,36 @@ static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, u
     return pretest - retest;
 }
 
+static int merge_test_runlength(uint16_t *retest, uint8_t *src, int n)
+{
+    uint16_t *pretest = retest;
+    for(int x=0; x<n; x+=32) {
+        uint32_t mask, m2;
+        asm("movdqa %2, %%xmm0 \n"
+            "movdqa %3, %%xmm1 \n"
+            "psllw  $7, %%xmm0 \n"
+            "psllw  $7, %%xmm1 \n"
+            "pmovmskb %%xmm0, %0 \n"
+            "pmovmskb %%xmm1, %1 \n"
+            :"=r"(mask), "=r"(m2)
+            :"m"(src[x]), "m"(src[x+16])
+        );
+        mask += m2<<16;
+        mask = ~mask;
+        int x2 = x-1;
+        while(mask) {
+            int tz = __builtin_ctz(mask);
+            x2 += tz+1;
+            *pretest++ = x2;
+            mask >>= tz;
+            mask >>= 1;
+        }
+    }
+    while(pretest > retest && pretest[-1] >= n)
+        pretest--;
+    return pretest - retest;
+}
+
 static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
 {
 //  for(int x=0; x<n; x++)
@@ -809,7 +839,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     float *sum_12x4[2] = { memalign(16, tstride*sizeof(float)), memalign(16, tstride*sizeof(float)) };
     uint8_t *tested = memalign(16, 3*tstride+16); // FIXME only needs stride=align(tstride/2+2)
     uint8_t *tested2 = memalign(16, tstride+16);
-    uint16_t *retest = memalign(16, (tstride+16)/2*sizeof(uint16_t));
+    uint16_t *retest = memalign(16, (tstride+32)*sizeof(uint16_t));
     v4si *test_dotp = memalign(16, tstride/2*sizeof(v4si));
     memset(tested, 0, 3*tstride+16);
     tested += 16;
@@ -873,11 +903,11 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         pix = src+(y-2)*sstride-3;
         uint8_t *dpix = dst+(y*2+1)*dstride;
         START_TIMER;
-        for(int x=0; x<width; x++) {
-            if(!tested2[x]) {
-                int v = nnedi_scale_one_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
-                dpix[x] = av_clip_uint8(v);
-            }
+        nretest = merge_test_runlength(retest, tested2, width);
+        for(int i=0; i<nretest; i++) {
+            int x = retest[i];
+            int v = nnedi_scale_one_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
+            dpix[x] = av_clip_uint8(v);
         }
         STOP_TIMER("scale");
     }
