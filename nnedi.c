@@ -662,13 +662,11 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 }
 
 
-void nnedi_cast_testblock_sse2(uint8_t *pix, int stride);
-void nnedi_shift_testblock_sse2(uint8_t *pix, int stride);
-v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi);
-void nnedi_test_dotproducts_sse2(const int16_t *weightsi, v4si *dst, const uint8_t *src, int stride, int width);
+v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi, const uint8_t *pix, int stride);
+void nnedi_test_dotproducts_sse2(const int16_t *weightsi, v4si *dst, const uint8_t *pix, int stride, int width);
 int nnedi_test_net_sse2(const float *weightsf, v4si dotp, float dc);
 int nnedi_test_net_x4_ssse3(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3);
-int nnedi_scale_one_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
+int nnedi_scale_net_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
 void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, int stride, int width);
 
 static struct {
@@ -727,11 +725,8 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
         uint8_t *pix = src+(y-1)*sstride-5;
-        for(int i=0; i<nretest; i++) {
-            int x = retest[i];
-            nnedi_cast_testblock_sse2(pix+x, sstride);
-            test_dotp[i] = nnedi_test_dotproduct_sse2(test_weights_i);
-        }
+        for(int i=0; i<nretest; i++)
+            test_dotp[i] = nnedi_test_dotproduct_sse2(test_weights_i, pix+retest[i], sstride);
         float *dc = sum_12x4[y&1];
         retest[nretest] = retest[nretest+1] = retest[nretest+2] = width+1;
         for(int i=0; i<nretest; i+=4) {
@@ -749,7 +744,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         nretest = merge_test_runlength(retest, tested2, width);
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
-            int v = nnedi_scale_one_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
+            int v = nnedi_scale_net_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
             dpix[x] = av_clip_uint8(v);
         }
     }

@@ -102,7 +102,7 @@ INIT_XMM
     CAT_UNDEF tmp, %%n
 %endmacro
 
-cglobal dotproducts
+cglobal scale_dotproduct_sse2
 %define stride 48*2
 %assign offset 128 ; FIXME could be 0 (possibly without any loss)
     DOTP_LOAD 0
@@ -133,6 +133,7 @@ cglobal dotproducts
     ret
 
 
+
 %macro DOTP_MUL2 1
     %assign %%n %1
     %assign %%j 10 + (%%n / 4)
@@ -140,11 +141,29 @@ cglobal dotproducts
     pmaddwd m %+ %%i, m %+ %%j
 %endmacro
 
-; v4si test_dotproduct(const int16_t *weightsi)
-cglobal test_dotproduct_sse2, 1,1
+; v4si test_dotproduct(const int16_t *weightsi, const uint8_t *pix, int stride)
+cglobal test_dotproduct_sse2, 3,4,16
+    lea        r3, [r2*3]
+    movq      m10, [r1]
+    movd      m11, [r1+8]
+    movd       m1, [r1+r2]
+    movq      m12, [r1+r2+4]
+    movq      m13, [r1+r2*2]
+    movd      m14, [r1+r2*2+8]
+    movd       m2, [r1+r3]
+    movq      m15, [r1+r3+4]
+    pxor       m0, m0
+    punpckldq m11, m1
+    punpckldq m14, m2
+    punpcklbw m10, m0
+    punpcklbw m12, m0
+    punpcklbw m13, m0
+    punpcklbw m11, m0
+    punpcklbw m14, m0
+    punpcklbw m15, m0
+
 %assign offset 0
     SWAP 0, 4
-    ; FIXME this ordering isn't doing as much good as I might expect
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_LOAD 2
@@ -164,8 +183,9 @@ cglobal test_dotproduct_sse2, 1,1
     DOTP_ACC  21
     DOTP_ACC  22
     DOTP_ACC  23
-    HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above; or do multiple test_nets at once.
-    ret
+    HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above
+    RET
+
 
 
 %macro DOTP_LOAD3 1
@@ -214,7 +234,7 @@ cglobal test_dotproduct_sse2, 1,1
     CAT_UNDEF tmp, %%n
 %endmacro
 
-; void test_dotproducts(const int16_t *weightsi, v4si *dst, const uint8_t *src, int stride, int width)
+; void test_dotproducts(const int16_t *weightsi, v4si *dst, const uint8_t *pix, int stride, int width)
 cglobal test_dotproducts_sse2, 5,7
 %assign offset0 128
 %assign offset1 384
@@ -325,8 +345,8 @@ cglobal test_dotproducts_sse2, 5,7
 %endmacro
 
 
-; int scale_one(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
-cglobal scale_one_sse2, 4,6,16
+; int scale_net(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
+cglobal scale_net_sse2, 4,6,16
     sub      rsp, NNS*8+24
 %define buf rsp
 %define mean buf+NNS*8
@@ -391,7 +411,7 @@ cglobal scale_one_sse2, 4,6,16
     add      r0, 128
     mov      r2, buf
 %rep NNS/8
-    call dotproducts
+    call scale_dotproduct_sse2
 %endrep
 
     movss    m_invstddev, [invstddev]
@@ -444,58 +464,6 @@ cglobal scale_one_sse2, 4,6,16
     add rsp, NNS*8+24
     RET
 
-
-
-; FIXME keeps data in xmmregs across function calls, which isn't win64 compatible
-; void cast_testblock(uint8_t *pix, int stride)
-cglobal cast_testblock_sse2, 2,4
-    lea        r2, [r1*3]
-    movq      m10, [r0]
-    movd      m11, [r0+8]
-    movd       m1, [r0+r1]
-    movq      m12, [r0+r1+4]
-    movq      m13, [r0+r1*2]
-    movd      m14, [r0+r1*2+8]
-    movd       m2, [r0+r2]
-    movq      m15, [r0+r2+4]
-    pxor       m0, m0
-    punpckldq m11, m1
-    punpckldq m14, m2
-    punpcklbw m10, m0
-    punpcklbw m12, m0
-    punpcklbw m13, m0
-    punpcklbw m11, m0
-    punpcklbw m14, m0
-    punpcklbw m15, m0
-    RET
-
-; void shift_testblock(uint8_t *pix, int stride)
-cglobal shift_testblock_sse2, 2,4
-%define buf rsp-24
-    lea      r2, [r1*3]
-    movzx   r3d, byte [r0]
-    mov     [buf+0], r3w
-    movzx   r3d, byte [r0+r1]
-    mov     [buf+2], r3w
-    movzx   r3d, byte [r0+r1*2]
-    mov     [buf+4], r3w
-    movzx   r3d, byte [r0+r2]
-    mov     [buf+6], r3w
-    movzx   r3d, byte [r0+1]
-    mov     [buf+8], r3w
-    movzx   r3d, byte [r0+r1+1]
-    mov     [buf+10], r3w
-    movzx   r3d, byte [r0+r1*2+1]
-    mov     [buf+12], r3w
-    movzx   r3d, byte [r0+r2+1]
-    mov     [buf+14], r3w
-    mova    m10, m11
-    mova    m11, m12
-    mova    m12, m13
-    mova    m13, m14
-    mova    m14, m15
-    mova    m15, [buf]
-    RET
 
 
 ; int test_net(const float *weightsf, v4si dotp, float dc)
@@ -552,6 +520,7 @@ cglobal test_net_sse2, 1,1
     comiss   m0, m1
     seta     al
     RET
+
 
 
 %macro DOTP0 2
