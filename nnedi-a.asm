@@ -114,15 +114,15 @@ cglobal dotproducts
 %assign i 0
 %rep 92
     DOTP_LOAD i+4
-    DOTP_ACC  i+0
     DOTP_MUL  i+2
+    DOTP_ACC  i+0
 %assign i i+1
 %endrep
-    DOTP_ACC  92
     DOTP_MUL  94
-    DOTP_ACC  93
-    mova  [r2], m0
+    DOTP_ACC  92
     DOTP_MUL  95
+    mova  [r2], m0
+    DOTP_ACC  93
     DOTP_ACC  94
     mova  [r2+16], m1
     add        r0, stride*16+128-offset
@@ -154,14 +154,14 @@ cglobal test_dotproduct_sse2, 1,1
 %assign i 0
 %rep 20
     DOTP_LOAD i+4
-    DOTP_ACC  i+0
     DOTP_MUL2 i+2
+    DOTP_ACC  i+0
 %assign i i+1
 %endrep
-    DOTP_ACC  20
     DOTP_MUL2 22
-    DOTP_ACC  21
+    DOTP_ACC  20
     DOTP_MUL2 23
+    DOTP_ACC  21
     DOTP_ACC  22
     DOTP_ACC  23
     HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above; or do multiple test_nets at once.
@@ -178,6 +178,10 @@ cglobal test_dotproduct_sse2, 1,1
         %assign %%i 7
     %elifndef used8
         %assign %%i 8
+    %elifndef used9
+        %assign %%i 9
+    %elifndef used10
+        %assign %%i 10
     %else
         %error dotproduct register allocation failed
     %endif
@@ -246,15 +250,21 @@ cglobal test_dotproducts_sse2, 5,7
     pxor     m0, m0
     DOTP_LOAD3 0
     DOTP_LOAD3 1
+    DOTP_LOAD3 2
     DOTP_MUL3  0
+    DOTP_LOAD3 3
+    DOTP_MUL3  1
 %assign i 0
-%rep 22
-    DOTP_LOAD3 i+2
-    DOTP_MUL3  i+1
+%rep 20
+    DOTP_LOAD3 i+4
+    DOTP_MUL3  i+2
     DOTP_ACC3  i+0
 %assign i i+1
 %endrep
+    DOTP_MUL3  22
+    DOTP_ACC3  20
     DOTP_MUL3  23
+    DOTP_ACC3  21
     DOTP_ACC3  22
     DOTP_ACC3  23
     mova   [r1+j*16], m5
