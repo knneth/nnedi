@@ -211,6 +211,57 @@ cglobal test_dotproduct2_sse2, 1,1
     DOTP_ACC3 23
     ret
 
+; void test_dotproducts(const int16_t *weightsi, v4si *dst, const uint8_t *src, int stride, int width)
+cglobal test_dotproducts_sse2, 5,6
+    lea      r5, [r3*3]
+.loop:
+    movd     m8, [r2]
+    movd     m9, [r2+r3]
+    movd     m10, [r2+r3*2]
+    movd     m11, [r2+r5]
+    punpcklbw m8, m9
+    punpcklbw m10, m11
+    punpcklwd m8, m10
+    pxor     m9, m9
+    punpcklbw m8, m9
+    mova     m15, m8
+
+    mova     m5, m4
+    mova     m4, m3
+    mova     m3, m2
+    mova     m2, m1
+    mova     m1, m0
+    pxor     m0, m0
+%rep 4
+    mova     m6, [r0+0x00]
+    pmaddwd  m6, m15
+    paddd    m0, m6
+    mova     m6, [r0+0x10]
+    pmaddwd  m6, m15
+    paddd    m1, m6
+    mova     m6, [r0+0x20]
+    pmaddwd  m6, m15
+    paddd    m2, m6
+    mova     m6, [r0+0x30]
+    pmaddwd  m6, m15
+    paddd    m3, m6
+    mova     m6, [r0+0x40]
+    pmaddwd  m6, m15
+    paddd    m4, m6
+    mova     m6, [r0+0x50]
+    pmaddwd  m6, m15
+    paddd    m5, m6
+    pshufd   m15, m15, 0x39
+    add      r0, 0x60
+%endrep
+    mova   [r1], m5
+    sub      r0, 0x60*4
+    add      r1, 16
+    add      r2, 2
+    dec      r4
+    jg .loop
+    RET
+
 
 
 %macro SIGMOID 2 ; dst, tmp
