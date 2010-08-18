@@ -717,11 +717,13 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             uint8_t *pt = tested+(testy%3)*tstride;
             uint8_t *pix = src+(testy-1)*sstride+5;
             int x = !(testy&1);
+            START_TIMER;
             init_testblock(ibuf, pix+x-12, sstride);
             for(; x<width; x+=2) {
                 nnedi_shift_testblock_sse2(pix+x, sstride);
                 test_dotp[x/2] = nnedi_test_dotproduct_sse2(test_weights_i_transpose);
             }
+            STOP_TIMER("dotp");
             float *dc = sum_12x4[testy&1]+!(testy&1);
             int end = (width+(testy&1))>>1;
             for(int x=0; x<end; x+=4)
