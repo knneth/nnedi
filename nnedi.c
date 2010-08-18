@@ -702,7 +702,6 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     ALIGNED_16(float test_weights_f[68]);
     ALIGNED_16(int16_t scale_weights_i[48*2*NNS]);
     ALIGNED_16(float scale_weights_f[4*NNS]);
-    ALIGNED_16(int16_t ibuf[48]);
     munge_test_weights(test_weights_i, test_weights_i_transpose, test_weights_f, test_weights);
     munge_scale_weights(scale_weights_i, scale_weights_f,
         NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
@@ -716,13 +715,11 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         pad_row(src, width, height, sstride, y+3);
         for(; testy<=y+1 && testy<height; testy++) {
             block_sums(sum_12x4[testy&1], sum_w12, src+(testy+2)*sstride-5, width, 12, testy&3, tstride);
-            uint8_t *pt = tested+(testy%3)*tstride;
             uint8_t *pix = src+(testy-1)*sstride-5+!(testy&1);
-            START_TIMER;
-            nnedi_test_dotproducts_sse2(test_weights_i_transpose, test_dotp, pix, sstride, (width+10+(testy&1))/2);
-            STOP_TIMER("dotp");
-            float *dc = sum_12x4[testy&1]+!(testy&1);
             int end = (width+(testy&1))>>1;
+            nnedi_test_dotproducts_sse2(test_weights_i_transpose, test_dotp, pix, sstride, end+5);
+            uint8_t *pt = tested+(testy%3)*tstride;
+            float *dc = sum_12x4[testy&1]+!(testy&1);
             for(int x=0; x<end; x+=4)
                 *(uint32_t*)(pt+x) = nnedi_test_net_x4_ssse3(test_weights_f, test_dotp+x+5, dc[x*2], dc[x*2+2], dc[x*2+4], dc[x*2+6]);
             pt[end] = 0;
