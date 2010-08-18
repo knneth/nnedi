@@ -358,12 +358,13 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
     memcpy(dstf+8, src, 60*sizeof(float));
 
     // transpose weights into the order that asm wants
-    int16_t b[48*4], c[48*4];
+    int16_t b[48*4];
+    int32_t c[24*4];
     float d[16], e[32];
-    for(int i=0; i<48*4; i++) {
+    for(int i=0; i<48*4; i++)
         b[i] = dsti[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
-        c[i] = dsti_transpose[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
-    }
+    for(int i=0; i<24*4; i++)
+        c[i] = ((int32_t*)dsti_transpose)[(i&3)*24 + ((i%24)&~3) + ((i+i/24)&3)];
     for(int i=0; i<16; i++)
         d[i] = dstf[12 + (i&3)*4 + ((i+(i>>2))&3)];
     for(int i=40; i<48; i++)
@@ -420,9 +421,9 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     // transpose weights into the order that asm wants
     dsti -= 48*2*NNS;
     for(int j=0; j<2*NNS; j+=16) {
-        uint32_t *a = (uint32_t*)(dsti+48*j);
-        uint32_t b[48*8];
-        for(int i=0; i<48*8; i++)
+        int32_t *a = (int32_t*)(dsti+48*j);
+        int32_t b[24*16];
+        for(int i=0; i<24*16; i++)
             b[i] = a[96*((i>>2)&3) + 24*(i&3) + 4*(i>>6) + ((i+(i>>4))&3)];
         memcpy(a, b, sizeof(b));
     }
@@ -664,6 +665,7 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 void nnedi_cast_testblock_sse2(uint8_t *pix, int stride);
 void nnedi_shift_testblock_sse2(uint8_t *pix, int stride);
 v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi);
+v4si nnedi_test_dotproduct2_sse2(const int16_t *weightsi);
 int nnedi_test_net_sse2(const float *weightsf, v4si dotp, float dc);
 int nnedi_test_net_x4_ssse3(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3);
 int nnedi_scale_one_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
@@ -721,7 +723,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             init_testblock(ibuf, pix+x-12, sstride);
             for(; x<width; x+=2) {
                 nnedi_shift_testblock_sse2(pix+x, sstride);
-                test_dotp[x/2] = nnedi_test_dotproduct_sse2(test_weights_i_transpose);
+                test_dotp[x/2] = nnedi_test_dotproduct2_sse2(test_weights_i_transpose);
             }
             STOP_TIMER("dotp");
             float *dc = sum_12x4[testy&1]+!(testy&1);

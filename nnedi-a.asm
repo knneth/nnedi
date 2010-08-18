@@ -169,6 +169,50 @@ cglobal test_dotproduct_sse2, 1,1
     ret
 
 
+%macro DOTP_MUL3 1
+    %assign %%n %1
+    %assign %%j 10 + (%%n % 6)
+    %assign %%i tmp %+ %%n
+    pmaddwd m %+ %%i, m %+ %%j
+    pshufd  m %+ %%j, m %+ %%j, 0x39
+%endmacro
+
+%macro DOTP_ACC3 1
+    %assign %%n %1
+    %assign %%i tmp %+ %%n
+    %if %%n >= 1
+        paddd m0, m %+ %%i
+        CAT_UNDEF used, %%i
+    %endif
+    CAT_UNDEF tmp, %%n
+%endmacro
+
+; v4si test_dotproduct2(const int16_t *weightsi)
+cglobal test_dotproduct2_sse2, 1,1
+%assign offset 0
+    DOTP_LOAD 0
+    DOTP_LOAD 1
+    DOTP_LOAD 2
+    DOTP_MUL3 0
+    DOTP_LOAD 3
+    DOTP_MUL3 1
+%assign i 0
+%rep 20
+    DOTP_LOAD i+4
+    DOTP_ACC3 i+0
+    DOTP_MUL3 i+2
+%assign i i+1
+%endrep
+    DOTP_ACC3 20
+    DOTP_MUL3 22
+    DOTP_ACC3 21
+    DOTP_MUL3 23
+    DOTP_ACC3 22
+    DOTP_ACC3 23
+    ret
+
+
+
 %macro SIGMOID 2 ; dst, tmp
     movaps   %2, %1
     andps    %1, m_abs
