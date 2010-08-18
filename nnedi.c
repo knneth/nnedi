@@ -665,7 +665,6 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 void nnedi_cast_testblock_sse2(uint8_t *pix, int stride);
 void nnedi_shift_testblock_sse2(uint8_t *pix, int stride);
 v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi);
-v4si nnedi_test_dotproduct2_sse2(const int16_t *weightsi);
 void nnedi_test_dotproducts_sse2(const int16_t *weightsi, v4si *dst, const uint8_t *src, int stride, int width);
 int nnedi_test_net_sse2(const float *weightsf, v4si dotp, float dc);
 int nnedi_test_net_x4_ssse3(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3);
@@ -718,9 +717,9 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         for(; testy<=y+1 && testy<height; testy++) {
             block_sums(sum_12x4[testy&1], sum_w12, src+(testy+2)*sstride-5, width, 12, testy&3, tstride);
             uint8_t *pt = tested+(testy%3)*tstride;
-            uint8_t *pix = src+(testy-1)*sstride+5;
+            uint8_t *pix = src+(testy-1)*sstride-5+!(testy&1);
             START_TIMER;
-            nnedi_test_dotproducts_sse2(test_weights_i_transpose, test_dotp, pix-10+!(testy&1), sstride, (width+10+(testy&1))/2);
+            nnedi_test_dotproducts_sse2(test_weights_i_transpose, test_dotp, pix, sstride, (width+10+(testy&1))/2);
             STOP_TIMER("dotp");
             float *dc = sum_12x4[testy&1]+!(testy&1);
             int end = (width+(testy&1))>>1;

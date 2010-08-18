@@ -141,7 +141,6 @@ cglobal dotproducts
 %endmacro
 
 ; v4si test_dotproduct(const int16_t *weightsi)
-; FIXME elminate hadd, and maybe transpose to reduce reg count
 cglobal test_dotproduct_sse2, 1,1
 %assign offset 0
     SWAP 0, 4
@@ -169,98 +168,110 @@ cglobal test_dotproduct_sse2, 1,1
     ret
 
 
+%macro DOTP_LOAD3 1
+    %assign %%n %1
+    %if %%n == 0
+        %assign %%i 0
+    %elifndef used6
+        %assign %%i 6
+    %elifndef used7
+        %assign %%i 7
+    %elifndef used8
+        %assign %%i 8
+    %else
+        %error dotproduct register allocation failed
+    %endif
+    %if %%n*16-offset0 < 0x80
+        mova  m %+ %%i, [r0+%%n*16-offset0]
+    %else
+        mova  m %+ %%i, [r6+%%n*16-offset1]
+    %endif
+    CAT_XDEFINE tmp, %%n, %%i
+    CAT_XDEFINE used, %%i, 1
+%endmacro
+
 %macro DOTP_MUL3 1
     %assign %%n %1
-    %assign %%j 10 + (%%n % 6)
     %assign %%i tmp %+ %%n
-    pmaddwd m %+ %%i, m %+ %%j
-    pshufd  m %+ %%j, m %+ %%j, 0x39
+    pmaddwd m %+ %%i, m12
+    %if %%n % 6 == 5 && %%n < 18
+        pshufd  m12, m12, 0x39
+    %endif
 %endmacro
 
 %macro DOTP_ACC3 1
     %assign %%n %1
     %assign %%i tmp %+ %%n
     %if %%n >= 1
-        paddd m0, m %+ %%i
+        %assign %%j %%n % 6
+        paddd m %+ %%j, m %+ %%i
         CAT_UNDEF used, %%i
     %endif
     CAT_UNDEF tmp, %%n
 %endmacro
 
-; v4si test_dotproduct2(const int16_t *weightsi)
-cglobal test_dotproduct2_sse2, 1,1
-%assign offset 0
-    DOTP_LOAD 0
-    DOTP_LOAD 1
-    DOTP_LOAD 2
-    DOTP_MUL3 0
-    DOTP_LOAD 3
-    DOTP_MUL3 1
+; void test_dotproducts(const int16_t *weightsi, v4si *dst, const uint8_t *src, int stride, int width)
+cglobal test_dotproducts_sse2, 5,7
+%assign offset0 128
+%assign offset1 384
+    lea      r5, [r3*3]
+    lea      r6, [r0+offset1]
+    add      r0, offset0
+.loop:
+    movq      m12, [r2]
+    movq      m13, [r2+r3]
+    movq      m14, [r2+r3*2]
+    movq      m15, [r2+r5]
+    punpcklbw m12, m14
+    punpcklbw m13, m15
+    mova      m14, m12
+    punpcklbw m12, m13
+    punpckhbw m14, m13
+    pxor      m11, m11
+    mova      m13, m12
+    mova      m15, m14
+    punpcklbw m12, m11
+    punpckhbw m13, m11
+    punpcklbw m14, m11
+    punpckhbw m15, m11
+
+    mova     m6, m1
+    mova     m1, m3
+    mova     m2, m4
+    mova     m3, m5
+    mova     m4, m0
+    mova     m5, m6
+%assign j 0
+%rep 4
+    pxor     m0, m0
+    DOTP_LOAD3 0
+    DOTP_LOAD3 1
+    DOTP_MUL3  0
 %assign i 0
-%rep 20
-    DOTP_LOAD i+4
-    DOTP_ACC3 i+0
-    DOTP_MUL3 i+2
+%rep 22
+    DOTP_LOAD3 i+2
+    DOTP_MUL3  i+1
+    DOTP_ACC3  i+0
 %assign i i+1
 %endrep
-    DOTP_ACC3 20
-    DOTP_MUL3 22
-    DOTP_ACC3 21
-    DOTP_MUL3 23
-    DOTP_ACC3 22
-    DOTP_ACC3 23
-    ret
-
-; void test_dotproducts(const int16_t *weightsi, v4si *dst, const uint8_t *src, int stride, int width)
-cglobal test_dotproducts_sse2, 5,6
-    lea      r5, [r3*3]
-.loop:
-    movd     m8, [r2]
-    movd     m9, [r2+r3]
-    movd     m10, [r2+r3*2]
-    movd     m11, [r2+r5]
-    punpcklbw m8, m9
-    punpcklbw m10, m11
-    punpcklwd m8, m10
-    pxor     m9, m9
-    punpcklbw m8, m9
-    mova     m15, m8
-
-    mova     m5, m4
-    mova     m4, m3
-    mova     m3, m2
-    mova     m2, m1
-    mova     m1, m0
-    pxor     m0, m0
-%rep 4
-    mova     m6, [r0+0x00]
-    pmaddwd  m6, m15
-    paddd    m0, m6
-    mova     m6, [r0+0x10]
-    pmaddwd  m6, m15
-    paddd    m1, m6
-    mova     m6, [r0+0x20]
-    pmaddwd  m6, m15
-    paddd    m2, m6
-    mova     m6, [r0+0x30]
-    pmaddwd  m6, m15
-    paddd    m3, m6
-    mova     m6, [r0+0x40]
-    pmaddwd  m6, m15
-    paddd    m4, m6
-    mova     m6, [r0+0x50]
-    pmaddwd  m6, m15
-    paddd    m5, m6
-    pshufd   m15, m15, 0x39
-    add      r0, 0x60
+    DOTP_MUL3  23
+    DOTP_ACC3  22
+    DOTP_ACC3  23
+    mova   [r1+j*16], m5
+    SWAP 5, 4, 3, 2, 1, 0
+    SWAP 12, 13, 14, 15
+%if j<3
+    dec      r4
+    jle .ret
+%endif
+%assign j j+1
 %endrep
-    mova   [r1], m5
-    sub      r0, 0x60*4
-    add      r1, 16
-    add      r2, 2
+    add      r2, 8
+    add      r1, 64
     dec      r4
     jg .loop
-    RET
+.ret:
+    REP_RET
 
 
 
