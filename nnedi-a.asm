@@ -16,14 +16,6 @@ ss_48        dd 48.0
 ss_1_3:      dd 0.3333333333
 ss_1_16:     dd 0.0625
 
-%define m_invstddev m9
-%define m_exp_bias m10
-%define m_exp_c0   m11
-%define m_exp_c1   m12
-%define m_exp_c2   m13
-%define m_1        m14
-%define m_abs      m15
-
 SECTION .text
 INIT_XMM
 
@@ -82,7 +74,14 @@ INIT_XMM
 
 %macro DOTP_MUL 1
     %assign %%n %1
-    %assign %%j 10 + (%%n / 16)
+    %ifdef HAVE_16REGS
+        %assign %%j 10 + (%%n / 16)
+    %else
+        %assign %%j 7
+        %if (%%n & 15) == 0
+            mova m7, [rsp+gprsize+(%%n&~15)]
+        %endif
+    %endif
     %assign %%i tmp %+ %%n
     pmaddwd m %+ %%i, m %+ %%j
     %if (%%n & 3) == 3
@@ -102,9 +101,9 @@ INIT_XMM
     CAT_UNDEF tmp, %%n
 %endmacro
 
-cglobal scale_dotproduct_sse2
-%define stride 48*2
 %assign offset 128 ; FIXME could be 0 (possibly without any loss)
+%ifdef HAVE_16REGS
+cglobal scale_dotproduct_sse2
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_LOAD 2
@@ -125,22 +124,42 @@ cglobal scale_dotproduct_sse2
     DOTP_ACC  93
     DOTP_ACC  94
     mova  [r2+16], m1
-    add        r0, stride*16+128-offset
+    add        r0, 48*2*16+128-offset
     DOTP_ACC  95
     mova  [r2+32], m2
     mova  [r2+48], m3
     add        r2, 64
     ret
 
+%else ; X86_32
+cglobal scale_dotproduct_sse2
+%assign i 0
+%rep 95
+    DOTP_LOAD i
+    DOTP_MUL  i
+    DOTP_ACC  i
+%assign i i+1
+%endrep
+    DOTP_LOAD 95
+    mova  [r2], m0
+    DOTP_MUL  95
+    mova  [r2+16], m1
+    add        r0, 48*2*16+128-offset
+    DOTP_ACC  95
+    mova  [r2+32], m2
+    mova  [r2+48], m3
+    add        r2, 64
+    ret
+%endif
 
 
 %macro DOTP_MUL2 1
     %assign %%n %1
-%ifdef HAVE_16REGS
-    %assign %%j 10 + (%%n / 4)
-%else
-    %assign %%j 7
-%endif
+    %ifdef HAVE_16REGS
+        %assign %%j 10 + (%%n / 4)
+    %else
+        %assign %%j 7
+    %endif
     %assign %%i tmp %+ %%n
     pmaddwd m %+ %%i, m %+ %%j
 %endmacro
@@ -437,21 +456,36 @@ cglobal test_dotproducts_sse2, 5,7,8
 
 ; int scale_net(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
 cglobal scale_net_sse2, 4,6,16
-    sub      rsp, NNS*8+24
-%define buf rsp
-%define mean buf+NNS*8
-%define stddev mean+4
-%define invstddev stddev+4
+    %assign stack_size NNS*8+24
+%ifdef HAVE_16REGS
+    %define buf rsp
+%else
+    %assign stack_size stack_size+0x60
+    %define spill rsp
+    %define buf rsp+0x60
+%endif
+    %define mean buf+NNS*8
+    %define stddev mean+4
+    %define invstddev stddev+4
+    sub      rsp, stack_size
 
     ; compute sum and sum squared
     lea        r4, [r3*3]
     add        r4, r2
     pxor       m0, m0
+%ifdef HAVE_16REGS
     LOAD_SUM_SQUARE m10, m11, m1, m2, m3, [r2], [r2+r3]
     LOAD_SUM_SQUARE m12, m13, m3, m4, m5, [r2+r3*2], [r4]
     paddd      m2, m4
     paddd      m1, m3
     LOAD_SUM_SQUARE m14, m15, m3, m4, m5, [r4+r3], [r4+r3*2]
+%else
+    LOAD_SUM_SQUARE [spill+0x00], [spill+0x10], m1, m2, m3, [r2], [r2+r3]
+    LOAD_SUM_SQUARE [spill+0x20], [spill+0x30], m3, m4, m5, [r2+r3*2], [r4]
+    paddd      m2, m4
+    paddd      m1, m3
+    LOAD_SUM_SQUARE [spill+0x40], [spill+0x50], m3, m4, m5, [r4+r3], [r4+r3*2]
+%endif
     paddd      m2, m4
     paddd      m1, m3
     movhlps    m4, m2
@@ -484,38 +518,59 @@ cglobal scale_net_sse2, 4,6,16
     ; remove mean
     pshuflw    m3, m3, 0
     punpcklqdq m3, m3
-    psllw     m10, 4
-    psubw     m10, m3
-    psllw     m11, 4
-    psubw     m11, m3
-    psllw     m12, 4
-    psubw     m12, m3
-    psllw     m13, 4
-    psubw     m13, m3
-    psllw     m14, 4
-    psubw     m14, m3
-    psllw     m15, 4
-    psubw     m15, m3
+%assign i 10
+%rep 6
+%ifdef HAVE_16REGS
+    psllw    m %+ i, 4
+    psubw    m %+ i, m3
+%else
+    mova     m0, [spill+(i-10)*16]
+    psllw    m0, 4
+    psubw    m0, m3
+    mova     [spill+(i-10)*16], m0
+%endif
+%assign i i+1
+%endrep
 
     ; neural net
     add      r0, 128
-    mov      r2, buf
+    lea      r2, [buf]
 %rep NNS/8
     call scale_dotproduct_sse2
 %endrep
 
+%ifdef HAVE_16REGS
+    %define  m_invstddev  m9
+    %define  m_exp_bias   m10
+    %define  m_exp_c0     m11
+    %define  m_exp_c1     m12
+    %define  m_exp_c2     m13
+    %define  m_1          m14
+    %define  m_abs        m15
     movss    m_invstddev, [invstddev]
-    movaps   m_exp_bias, [ps_exp_bias]
-    movaps   m_exp_c0,   [ps_exp_c0]
+    movaps   m_exp_bias,  [ps_exp_bias]
+    movaps   m_exp_c0,    [ps_exp_c0]
     shufps   m_invstddev, m_invstddev, 0
-    movaps   m_exp_c1,   [ps_exp_c1]
-    movaps   m_exp_c2,   [ps_exp_c2]
-    movaps   m_1,        [ps_1]
-    movaps   m_abs,      [ps_abs]
+    movaps   m_exp_c1,    [ps_exp_c1]
+    movaps   m_exp_c2,    [ps_exp_c2]
+    movaps   m_1,         [ps_1]
+    movaps   m_abs,       [ps_abs]
+%else
+    %define  m_invstddev  m6
+    %define  m_exp_bias   m7
+    %define  m_exp_c0     [ps_exp_c0]
+    %define  m_exp_c1     [ps_exp_c1]
+    %define  m_exp_c2     [ps_exp_c2]
+    %define  m_1          [ps_1]
+    %define  m_abs        [ps_abs]
+    movss    m_invstddev, [invstddev]
+    movaps   m_exp_bias,  [ps_exp_bias]
+    shufps   m_invstddev, m_invstddev, 0
+%endif
 
     add      r1, NNS*8
+    xorps    m4, m4
     xorps    m5, m5
-    xorps    m6, m6
 %assign i 0
 %rep NNS/4
     movaps   m2, [r1+i*8-NNS*8]
@@ -531,33 +586,35 @@ cglobal scale_net_sse2, 4,6,16
     SIGMOID  m1, m2
     EXP2     m0, m2, m3
     mulps    m1, m0
-    addps    m5, m0
-    addps    m6, m1
+    addps    m4, m0
+    addps    m5, m1
 %assign i i+4
 %endrep
 
     ; FIXME merge several instances? or is OOE enough?
-    HADDPS   m0, m5
+    HADDPS   m0, m4
     movss    m2, [ss_5]
-    HADDPS   m1, m6
+    HADDPS   m1, m5
     mulss    m2, [stddev]
     rcpss    m0, m0
     mulss    m1, m2
     mulss    m0, m1
     addss    m0, [mean]
     cvtss2si eax, m0
-    add rsp, NNS*8+24
+    add rsp, stack_size
     RET
 
 .zero:
     cvtss2si eax, m2
-    add rsp, NNS*8+24
+    add rsp, stack_size
     RET
 
 
 
 ; int test_net(const float *weightsf, const int *dotp, float dc)
 cglobal test_net_sse2, 2,2
+%define m_1   m14
+%define m_abs m15
     add      r0, 0x80
     pshufd   m1, m0, 0 ; dc
     mulps    m1, [r0-0x70]
@@ -652,6 +709,8 @@ cglobal test_net_sse2, 2,2
 
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
 cglobal test_net_x4_ssse3, 2,2
+%define m_1   m14
+%define m_abs m15
 %define buf rsp-0x88
     add      r0, 0x80
     pshufd   m4, m0, 0
