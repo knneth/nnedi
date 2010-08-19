@@ -74,7 +74,7 @@ INIT_XMM
 
 %macro DOTP_MUL 1
     %assign %%n %1
-    %ifdef HAVE_16REGS
+    %ifdef ARCH_X86_64
         %assign %%j 10 + (%%n / 16)
     %else
         %assign %%j 7
@@ -102,7 +102,7 @@ INIT_XMM
 %endmacro
 
 %assign offset 128 ; FIXME could be 0 (possibly without any loss)
-%ifdef HAVE_16REGS
+%ifdef ARCH_X86_64
 cglobal scale_dotproduct_sse2
     DOTP_LOAD 0
     DOTP_LOAD 1
@@ -155,7 +155,7 @@ cglobal scale_dotproduct_sse2
 
 %macro DOTP_MUL2 1
     %assign %%n %1
-    %ifdef HAVE_16REGS
+    %ifdef ARCH_X86_64
         %assign %%j 10 + (%%n / 4)
     %else
         %assign %%j 7
@@ -187,7 +187,7 @@ cglobal scale_dotproduct_sse2
 
 ; void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride)
 %assign offset 0
-%ifdef HAVE_16REGS
+%ifdef ARCH_X86_64
 cglobal test_dotproduct_sse2, 4,5,16
     LOAD12x4 m10, m11, m12, m13, m14, m15, m0, m1
     DOTP_LOAD 0
@@ -313,7 +313,7 @@ cglobal test_dotproduct_sse2, 4,5,8
 ; void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width)
 %assign offset0 128
 %assign offset1 384
-%ifdef HAVE_16REGS
+%ifdef ARCH_X86_64
 cglobal test_dotproducts_sse2, 5,7,16
 %define m_pix m12
     lea      r5, [r3*3]
@@ -457,7 +457,7 @@ cglobal test_dotproducts_sse2, 5,7,8
 ; int scale_net(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
 cglobal scale_net_sse2, 4,6,16
     %assign stack_size NNS*8+24
-%ifdef HAVE_16REGS
+%ifdef ARCH_X86_64
     %define buf rsp
 %else
     %assign stack_size stack_size+0x60
@@ -473,7 +473,7 @@ cglobal scale_net_sse2, 4,6,16
     lea        r4, [r3*3]
     add        r4, r2
     pxor       m0, m0
-%ifdef HAVE_16REGS
+%ifdef ARCH_X86_64
     LOAD_SUM_SQUARE m10, m11, m1, m2, m3, [r2], [r2+r3]
     LOAD_SUM_SQUARE m12, m13, m3, m4, m5, [r2+r3*2], [r4]
     paddd      m2, m4
@@ -520,7 +520,7 @@ cglobal scale_net_sse2, 4,6,16
     punpcklqdq m3, m3
 %assign i 10
 %rep 6
-%ifdef HAVE_16REGS
+%ifdef ARCH_X86_64
     psllw    m %+ i, 4
     psubw    m %+ i, m3
 %else
@@ -539,7 +539,7 @@ cglobal scale_net_sse2, 4,6,16
     call scale_dotproduct_sse2
 %endrep
 
-%ifdef HAVE_16REGS
+%ifdef ARCH_X86_64
     %define  m_invstddev  m9
     %define  m_exp_bias   m10
     %define  m_exp_c0     m11
@@ -672,7 +672,7 @@ cglobal test_net_sse2, 2,2
 
 
 
-%ifdef HAVE_16REGS
+%ifdef ARCH_X86_64
 
 %macro DOTP0 2
     pshufd   m8, %1, 0x39
