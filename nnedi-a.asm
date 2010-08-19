@@ -217,9 +217,9 @@ cglobal test_dotproduct_sse2, 4,5,16
 %macro DOTP_MUL3 1
     %assign %%n %1
     %assign %%i tmp %+ %%n
-    pmaddwd m %+ %%i, m12
+    pmaddwd m %+ %%i, m_pix
     %if %%n % 6 == 5 && %%n < 18
-        pshufd  m12, m12, 0x39
+        pshufd  m_pix, m_pix, 0x39
     %endif
 %endmacro
 
@@ -234,7 +234,7 @@ cglobal test_dotproduct_sse2, 4,5,16
     CAT_UNDEF tmp, %%n
 %endmacro
 
-%define LOAD8x4_TRANPOSE 5
+%macro LOAD8x4_TRANPOSE 5
     movq      %1, [r2] ; FIXME palignr?
     movq      %2, [r2+r3]
     movq      %3, [r2+r3*2]
@@ -254,9 +254,11 @@ cglobal test_dotproduct_sse2, 4,5,16
 %endmacro
 
 ; void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width)
-cglobal test_dotproducts_sse2, 5,7
 %assign offset0 128
 %assign offset1 384
+%ifdef HAVE_16REGS
+cglobal test_dotproducts_sse2, 5,7,16
+%define m_pix m12
     lea      r5, [r3*3]
     lea      r6, [r0+offset1]
     add      r0, offset0
@@ -305,6 +307,53 @@ cglobal test_dotproducts_sse2, 5,7
     jg .loop
 .ret:
     REP_RET
+
+%else ; X86_32
+cglobal test_dotproducts_sse2, 5,7,8
+%define m_pix m7
+    sub     rsp, 0x60-gprsize
+    lea      r5, [r3*3]
+    lea      r6, [r0+offset1]
+    add      r0, offset0
+.loop:
+    mova     m1, m3
+    mova     m2, m4
+    mova     m3, m5
+    LOAD8x4_TRANPOSE m7, m6, m5, m4, m0
+    mova [rsp+0x00], m6
+    mova [rsp+0x10], m5
+    mova [rsp+0x20], m4
+    mova     m4, [rsp+0x30]
+    mova     m5, [rsp+0x40]
+%assign j 0
+%rep 4
+    pxor     m0, m0
+%assign i 0
+%rep 24
+    DOTP_LOAD3 i
+    DOTP_MUL3  i
+    DOTP_ACC3  i
+%assign i i+1
+%endrep
+    mova   [r1+j*16], m5
+    SWAP 5, 4, 3, 2, 1, 0
+%if j<3
+    mova  m_pix, [rsp+j*16]
+    dec      r4
+    jle .ret
+%endif
+    mova [rsp+0x30], m4
+    mova [rsp+0x40], m5
+%assign j j+1
+%endrep
+    add      r2, 8
+    add      r1, 64
+    dec      r4
+    jg .loop
+.ret:
+    add     rsp, 0x60-gprsize
+    RET
+%endif
 
 
 
