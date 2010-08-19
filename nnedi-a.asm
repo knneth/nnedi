@@ -457,7 +457,7 @@ cglobal test_dotproducts_sse2, 5,7,8
 
 
 ; int scale_net(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
-cglobal scale_net_sse2, 4,6,16
+cglobal scale_net_sse2, 4,5,16
     %assign stack_pad NNS*8+16+((-stack_offset-gprsize)&15)
 %ifdef ARCH_X86_64
     %define buf rsp
@@ -497,19 +497,19 @@ cglobal scale_net_sse2, 4,6,16
     pshuflw    m3, m1, 14
     paddd      m1, m3
     movd      r4d, m2
-    movd      r5d, m1
+    movd      r3d, m1
 
     ; compute means and stddev
     xorps      m2, m2
     cvtsi2ss   m2, r4d
-    imul      r5d, 48
+    imul      r3d, 48
     mulss      m2, [ss_1_3]
     cvtps2dq   m3, m2
     imul      r4d, r4d
     mulss      m2, [ss_1_16]
-    sub       r5d, r4d
+    sub       r3d, r4d
     jle .zero
-    cvtsi2ss   m1, r5d
+    cvtsi2ss   m1, r3d
     movss  [mean], m2
     rsqrtss    m1, m1
     mulss      m1, [ss_48]
@@ -615,9 +615,9 @@ cglobal scale_net_sse2, 4,6,16
 
 %if 0
 ; int test_net(const float *weightsf, const int *dotp, float dc)
-cglobal test_net_sse2, 2,2
-%define m_1   m14
-%define m_abs m15
+cglobal test_net_sse2, 2,2,10
+%define m_1   m8
+%define m_abs m9
     add      r0, 0x80
     pshufd   m1, m0, 0 ; dc
     mulps    m1, [r0-0x70]
@@ -714,7 +714,7 @@ cglobal test_net_sse2, 2,2
 %endmacro
 
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
-cglobal test_net_x4_ssse3, 2,2
+cglobal test_net_x4_ssse3, 2,2,16
 %define m_1   m14
 %define m_abs m15
     add      r0, 0x80
@@ -839,7 +839,7 @@ cglobal test_net_x4_ssse3, 2,2
 %endmacro
 
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
-cglobal test_net_x4_ssse3, 2,2
+cglobal test_net_x4_ssse3, 2,2,8
     movd     m4, r2m
     movd     m5, r3m
     movd     m6, r4m
@@ -962,7 +962,7 @@ align 16
 %endmacro
 
 ; void bicubic(uint8_t *dst, uint8_t *src, int stride, int width)
-cglobal bicubic_ssse3, 4,7
+cglobal bicubic_ssse3, 4,7,6
     add       r1, r3
     lea       r4, [r1+r2]
     lea       r5, [r1+r2*2]
@@ -984,7 +984,7 @@ cglobal bicubic_ssse3, 4,7
 
 
 ; void block_sums_core(float *dst, uint16_t *src, int stride, int width)
-cglobal block_sums_core_sse2, 4,7
+cglobal block_sums_core_sse2, 4,7,3
     pxor      m2, m2
     shl       r2, 1
     lea       r1, [r1+r3*2]
