@@ -94,14 +94,16 @@ static void transpose8x8_sse2(uint8_t *dst, uint8_t *src, intptr_t dstride, intp
         for(int y=0; y<8; y++)
             dst[x*dstride+y] = src[y*sstride+x];
 #else
-    asm("movq   (%4),      %%xmm0 \n"
-        "movq   (%4,%6),   %%xmm1 \n"
-        "movq   (%4,%6,2), %%xmm2 \n"
-        "movq   (%4,%7),   %%xmm3 \n"
-        "movhps (%5),      %%xmm0 \n"
-        "movhps (%5,%6),   %%xmm1 \n"
-        "movhps (%5,%6,2), %%xmm2 \n"
-        "movhps (%5,%7),   %%xmm3 \n"
+    asm volatile(
+        "movq   (%1),      %%xmm0 \n"
+        "movq   (%1,%4),   %%xmm1 \n"
+        "movq   (%1,%4,2), %%xmm2 \n"
+        "movq   (%1,%5),   %%xmm3 \n"
+        "lea    (%1,%4,4), %1     \n"
+        "movhps (%1),      %%xmm0 \n"
+        "movhps (%1,%4),   %%xmm1 \n"
+        "movhps (%1,%4,2), %%xmm2 \n"
+        "movhps (%1,%5),   %%xmm3 \n"
 
         "movdqa    %%xmm0, %%xmm4 \n"
         "movdqa    %%xmm2, %%xmm5 \n"
@@ -124,6 +126,7 @@ static void transpose8x8_sse2(uint8_t *dst, uint8_t *src, intptr_t dstride, intp
         "punpckldq %%xmm3, %%xmm1 \n"
         "punpckhdq %%xmm3, %%xmm5 \n"
 
+        "lea    (%0,%2,4), %1     \n"
         "movq   %%xmm0, (%0)      \n"
         "movhps %%xmm0, (%0,%2)   \n"
         "movq   %%xmm2, (%0,%2,2) \n"
@@ -133,9 +136,9 @@ static void transpose8x8_sse2(uint8_t *dst, uint8_t *src, intptr_t dstride, intp
         "movq   %%xmm5, (%1,%2,2) \n"
         "movhps %%xmm5, (%1,%3)   \n"
 
-        ::"r"(dst), "r"(dst+dstride*4), "r"(dstride), "r"(dstride*3),
-          "r"(src), "r"(src+sstride*4), "r"(sstride), "r"(sstride*3)
-          // FIXME #regs
+        :"+&r"(dst), "+&r"(src)
+        :"r"(dstride), "r"(dstride*3),
+         "r"(sstride), "r"(sstride*3)
     );
 #endif
 }
