@@ -234,6 +234,25 @@ cglobal test_dotproduct_sse2, 4,5,16
     CAT_UNDEF tmp, %%n
 %endmacro
 
+%define LOAD8x4_TRANPOSE 5
+    movq      %1, [r2] ; FIXME palignr?
+    movq      %2, [r2+r3]
+    movq      %3, [r2+r3*2]
+    movq      %4, [r2+r5]
+    punpcklbw %1, %3
+    punpcklbw %2, %4
+    mova      %3, %1
+    punpcklbw %1, %2
+    punpckhbw %3, %2
+    pxor      %5, %5
+    mova      %2, %1
+    mova      %4, %3
+    punpcklbw %1, %5
+    punpckhbw %2, %5
+    punpcklbw %3, %5
+    punpckhbw %4, %5
+%endmacro
+
 ; void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width)
 cglobal test_dotproducts_sse2, 5,7
 %assign offset0 128
@@ -242,23 +261,7 @@ cglobal test_dotproducts_sse2, 5,7
     lea      r6, [r0+offset1]
     add      r0, offset0
 .loop:
-    movq      m12, [r2] ; FIXME palignr?
-    movq      m13, [r2+r3]
-    movq      m14, [r2+r3*2]
-    movq      m15, [r2+r5]
-    punpcklbw m12, m14
-    punpcklbw m13, m15
-    mova      m14, m12
-    punpcklbw m12, m13
-    punpckhbw m14, m13
-    pxor      m11, m11
-    mova      m13, m12
-    mova      m15, m14
-    punpcklbw m12, m11
-    punpckhbw m13, m11
-    punpcklbw m14, m11
-    punpckhbw m15, m11
-
+    LOAD8x4_TRANPOSE m12, m13, m14, m15, m11
     mova     m6, m1
     mova     m1, m3
     mova     m2, m4
