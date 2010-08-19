@@ -8,305 +8,53 @@
 #include "nnedi.h"
 
 #define NNS 16
+#define USE_ASM
 
-typedef float __attribute__((vector_size(16))) v4f;
-typedef int32_t __attribute__((vector_size(16))) v4si;
-typedef int16_t __attribute__((vector_size(16))) v8si;
-
-static inline v4si splatpi(int x)
+#ifndef USE_ASM
+static inline int dotproduct(const int16_t *weights, const int16_t *inputs, int n)
 {
-    return (v4si){x,x,x,x};
+    int s = 0;
+    for(int i=0; i<n; i++)
+        s += weights[i]*inputs[i];
+    return s;
 }
 
-static inline v4f splatps(float x)
+static inline float dotproductf(const float *weights, const float *inputs, int n)
 {
-    return (v4f){x,x,x,x};
+    float s = 0;
+    for(int i=0; i<n; i++)
+        s += weights[i]*inputs[i];
+    return s;
 }
 
-#define SPLATPS(x) {x,x,x,x}
-
-static inline float haddps(v4f x)
+static inline float sigmoid(float x)
 {
-    float ret, tmp;
-    asm("movhlps %2, %1 \n"
-        "addps   %2, %1 \n"
-        "pshuflw $14, %1, %0 \n"
-        "addss   %1, %0 \n"
-        :"=x"(ret), "=&x"(tmp)
-        :"x"(x)
-    );
-    return ret;
+    return x / (fabsf(x) + 1.f);
 }
 
-static inline v4f haddps_x2(v4f x0, v4f x1)
+static inline float fast_exp2(float x)
 {
-    v4f ret;
-    asm("movaps   %1, %0 \n"
-        "unpcklps %2, %1 \n"
-        "unpckhps %2, %0 \n"
-        "addps    %1, %0 \n"
-        "movhlps  %0, %1 \n"
-        "addps    %1, %0 \n"
-        :"=&x"(ret), "+&x"(x0)
-        :"x"(x1)
-    );
-    return ret;
-}
-
-static inline v4f haddps_x4(v4f x0, v4f x1, v4f x2, v4f x3)
-{
-    v4f ret;
-    asm("movaps   %1, %0 \n"
-        "unpcklps %3, %1 \n"
-        "unpckhps %3, %0 \n"
-        "addps    %1, %0 \n"
-        "movaps   %2, %1 \n"
-        "unpcklps %4, %2 \n"
-        "unpckhps %4, %1 \n"
-        "addps    %2, %1 \n"
-        "movaps   %0, %2 \n"
-        "movlhps  %1, %0 \n"
-        "movhlps  %2, %1 \n"
-        "addps    %1, %0 \n"
-        :"=&x"(ret), "+&x"(x0), "+&x"(x2)
-        :"x"(x1), "x"(x3)
-    );
-    return ret;
-}
-
-static inline v4si haddpi_x4(v4si x0, v4si x1, v4si x2, v4si x3)
-{
-    v4si ret;
-    asm("movdqa     %1, %0 \n"
-        "punpckldq  %3, %1 \n"
-        "punpckhdq  %3, %0 \n"
-        "paddd      %1, %0 \n"
-        "movdqa     %2, %1 \n"
-        "punpckldq  %4, %2 \n"
-        "punpckhdq  %4, %1 \n"
-        "paddd      %2, %1 \n"
-        "movdqa     %0, %2 \n"
-        "punpcklqdq %1, %0 \n"
-        "punpckhqdq %1, %2 \n"
-        "paddd      %2, %0 \n"
-        :"=&x"(ret), "+&x"(x0), "+&x"(x2)
-        :"x"(x1), "x"(x3)
-    );
-    return ret;
-}
-
-static inline float rcpss(float x)
-{
-    asm("rcpss %0, %0 \n" :"+x"(x));
-    return x;
-}
-
-static inline float rsqrtss(float x)
-{
-    asm("rsqrtss %0, %0 \n" :"+x"(x));
-    return x;
-}
-
-static inline v4f cvtdq2ps(v4si x)
-{
-    v4f ret;
-    asm("cvtdq2ps %1, %0 \n" :"=x"(ret) :"x"(x));
-    return ret;
-}
-
-static inline v4f dotproduct_x4(const float *weights, const float *inputs, int n, int stride)
-{
-    v4f in = *(v4f*)inputs;
-    v4f s0 = *(v4f*)weights * in;
-    v4f s1 = *(v4f*)(weights+stride) * in;
-    v4f s2 = *(v4f*)(weights+stride*2) * in;
-    v4f s3 = *(v4f*)(weights+stride*3) * in;
-    for(int i=4; i<n; i+=4) {
-        in = *(v4f*)(inputs+i);
-        s0 += *(v4f*)(weights+i) * in;
-        s1 += *(v4f*)(weights+i+stride) * in;
-        s2 += *(v4f*)(weights+i+stride*2) * in;
-        s3 += *(v4f*)(weights+i+stride*3) * in;
-    }
-    return haddps_x4(s0, s1, s2, s3);
-}
-
-static inline v4si dotproduct_x4i(const int16_t *weights, const int16_t *inputs, int n, int stride)
-{
-    v4si s0,s1,s2,s3,t4,t5,t6,t7;
-    asm("movdqa %4, %0 \n"
-        "movdqa %0, %1 \n"
-        "movdqa %0, %2 \n"
-        "movdqa %0, %3 \n"
-        "pmaddwd %5, %0 \n"
-        "pmaddwd %6, %1 \n"
-        "pmaddwd %7, %2 \n"
-        "pmaddwd %8, %3 \n"
-        :"=&x"(s0), "=&x"(s1), "=&x"(s2), "=&x"(s3)
-        :"m"(inputs[0]), "m"(weights[0]), "m"(weights[stride]), "m"(weights[stride*2]), "m"(weights[stride*3])
-    );
-    for(int i=8; i<n; i+=8)
-        asm("movdqa %8, %4 \n"
-            "movdqa %4, %5 \n"
-            "movdqa %4, %6 \n"
-            "movdqa %4, %7 \n"
-            "pmaddwd %9, %4 \n"
-            "pmaddwd %10, %5 \n"
-            "pmaddwd %11, %6 \n"
-            "pmaddwd %12, %7 \n"
-            "paddd   %4, %0 \n"
-            "paddd   %5, %1 \n"
-            "paddd   %6, %2 \n"
-            "paddd   %7, %3 \n"
-            :"+&x"(s0), "+&x"(s1), "+&x"(s2), "+&x"(s3), "=&x"(t4), "=&x"(t5), "=&x"(t6), "=&x"(t7)
-            :"m"(inputs[i]), "m"(weights[i]), "m"(weights[i+stride]), "m"(weights[i+stride*2]), "m"(weights[i+stride*3])
-        );
-    return haddpi_x4(s0, s1, s2, s3);
-}
-
-static inline v4f sigmoid_x4(v4f x)
-{
-    static const v4f ps_1 = { 1.0, 1.0, 1.0, 1.0 };
-    static const v4si ps_abs = { ~(1<<31), ~(1<<31), ~(1<<31), ~(1<<31) };
-    v4f t = x;
-    asm("andps %3, %0 \n"
-        "addps %2, %0 \n"
-        "rcpps %0, %0 \n"
-        "mulps %1, %0 \n"
-        :"+&x"(x)
-        :"x"(t), "m"(ps_1), "m"(ps_abs)
-    );
-    return x;
-}
-
-static inline float vec_max(float *x, int n)
-{
-//  float max = x[0];
-//  for(int i=1; i<n; i++)
-//      max = fmaxf(max, x[i]);
-    intptr_t i = n*4-32;
-    float max, tmp;
-    asm("movaps 16(%3,%2), %0 \n"
-        "maxps    (%3,%2), %0 \n"
-        "1: \n"
-        "sub          $32, %2 \n"
-        "maxps  16(%3,%2), %0 \n"
-        "maxps    (%3,%2), %0 \n"
-        "jg 1b \n"
-        "movhlps       %0, %1 \n"
-        "maxps         %1, %0 \n"
-        "pshuflw  $14, %0, %1 \n"
-        "maxss         %1, %0 \n"
-        :"=x"(max), "=x"(tmp), "+&r"(i)
-        :"r"(x)
-    );
-    return max;
-}
-
-static inline v4f exp2ps(v4f x)
-{
-    static const v4f bias = SPLATPS(3<<22);
     // Taylor coefs are 1, 1*ln2, .5*ln2*ln2. But if I'm going to truncate the Taylor
     // series and care only about [-.5,.5], these modified coefs are a better fit.
-    static const v4f c0 = SPLATPS(1.00035);
-    static const v4f c1 = SPLATPS(1.01173*M_LN2);
-    static const v4f c2 = SPLATPS(0.49401*M_LN2*M_LN2);
-    v4f t, u, v; // gcc pessimizes this if I remove the unused variable
-    asm volatile (
-        "movaps %0, %2 \n\t"
-        "addps  %4, %0 \n\t"
-        "movaps %0, %3 \n\t"
-        "subps  %4, %0 \n\t" // round(x)
-        "pslld $23, %3 \n\t"
-        "subps  %0, %2 \n\t"
-        "movaps %2, %0 \n\t"
-        "mulps  %2, %2 \n\t"
-        "mulps  %6, %0 \n\t"
-        "mulps  %7, %2 \n\t"
-        "addps  %5, %0 \n\t"
-        "addps  %2, %0 \n\t"
-        "paddd  %3, %0 \n\t"
-        :"+x"(x), "=x"(t), "=x"(u), "=x"(v)
-        :"m"(bias), "m"(c0), "m"(c1), "m"(c2)
-    );
-    return x;
-}
-
-static inline void softmax(float *x, int n)
-{
-    v4f max = splatps(vec_max(x,n));
-    for(int i=0; i<n; i+=4)
-        *(v4f*)(x+i) = exp2ps(*(v4f*)(x+i) - max);
+    float c0 = 1.00035;
+    float c1 = 1.01173*M_LN2;
+    float c2 = 0.49401*M_LN2*M_LN2;
+    int i = (int)(x + 128.5f) - 128;
+    x -= i;
+    x = c0 + c1*x + c2*x*x;
+    union { float f; int i; } u;
+    u.i = (i+128)<<23;
+    return x * u.f;
 }
 
 static inline float weighted_average(float *weights, float *x, int n)
 {
-    v4f sum = splatps(0);
-    v4f dot = splatps(0);
-    for(int i=0; i<n; i+=4) {
-        sum += *(v4f*)(weights+i);
-        dot += *(v4f*)(weights+i) * *(v4f*)(x+i);
+    float sum = 0, den = 0;
+    for(int i=0; i<n; i++) {
+        sum += weights[i] * x[i];
+        den += weights[i];
     }
-    return haddps(dot)/haddps(sum);
-}
-
-static int test_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float dc)
-{
-    v4f tmp[2];
-    const v4f *weightsv = (v4f*)weightsf;
-    tmp[0] = cvtdq2ps(dotproduct_x4i(weightsi, pix, 48, 48))*weightsv[0] - splatps(dc)*weightsv[1];
-    tmp[0] = sigmoid_x4(tmp[0] + weightsv[2]);
-    tmp[1] = sigmoid_x4(dotproduct_x4(weightsf+12, (float*)tmp, 4, 4) + weightsv[7]);
-    v4f x = sigmoid_x4(dotproduct_x4(weightsf+32, (float*)tmp, 8, 8) + weightsv[16]);
-    v4f y;
-    int ret = 0;
-    asm("pshufd $0xa0, %1, %2 \n" // could be a pshuflw if I reordered the weights
-        "maxps   %2, %1 \n"
-        "movhlps %1, %2 \n"
-        "comiss  %2, %1 \n"
-        "seta    %b0 \n" // could directly use the flags in the branch
-        :"+r"(ret), "+x"(x), "=x"(y)
-    );
-    return ret;
-}
-
-__attribute__((noinline))
-static float scale_net(const int16_t *weightsi, const float *weightsf, const int16_t *pix, float invstddev)
-{
-    const int ninputs = 48;
-    v4f tmp[NNS/2];
-    const v4f *biases = (v4f*)weightsf;
-    v4f scalev = splatps(invstddev);
-    for(int i=0; i<NNS/2; i++, weightsi+=ninputs*4)
-        tmp[i] = cvtdq2ps(dotproduct_x4i(weightsi, pix, ninputs, ninputs)) * scalev * biases[i*2] + biases[i*2+1];
-    softmax((float*)tmp, NNS);
-    for(int i=NNS/4; i<NNS/2; i++)
-        tmp[i] = sigmoid_x4(tmp[i]);
-    return 5*weighted_average((float*)tmp, (float*)tmp+NNS, NNS);
-}
-
-static void init_testblock(int16_t *block, uint8_t *src, int stride)
-{
-    for(int y=0; y<4; y++)
-        for(int x=2; x<12; x++)
-            block[x*4+y] = src[x+y*stride];
-    asm volatile(
-        "movdqa 16(%0), %%xmm11 \n"
-        "movdqa 32(%0), %%xmm12 \n"
-        "movdqa 48(%0), %%xmm13 \n"
-        "movdqa 64(%0), %%xmm14 \n"
-        "movdqa 80(%0), %%xmm15 \n"
-        ::"r"(block), "m"(*(struct {int16_t x[48];}*)block)
-    );
-}
-
-static void shift_testblock(int16_t *block, uint8_t *src, int stride)
-{
-    memcpy(block, block+8, 40*sizeof(*block));
-    for(int i=0; i<4; i++) {
-        block[40+i] = src[i*stride];
-        block[44+i] = src[i*stride+1];
-    }
+    return sum/den;
 }
 
 static void cast_pixels_test(int16_t *dst, const uint8_t *src, intptr_t stride)
@@ -316,7 +64,7 @@ static void cast_pixels_test(int16_t *dst, const uint8_t *src, intptr_t stride)
             dst[y*12+x] = src[y*stride+x];
 }
 
-static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean_stddev_inv)
+static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride, float *mean, float *stddev, float *invstddev)
 {
     int sum = 0, sum2 = 0;
     for(int y=0; y<6; y++)
@@ -326,17 +74,178 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
             sum2 += v*v;
         }
     int var = sum2*48-sum*sum;
-    mean_stddev_inv[0] = sum*(1/48.f);
+    *mean = sum*(1/48.f);
     if(var > 0) {
-        float invstddev = mean_stddev_inv[2] = rsqrtss(var)*48.f;
-        mean_stddev_inv[1] = rcpss(invstddev);
+        *stddev = (1/48.f) * sqrtf(var);
+        *invstddev = 1.f / *stddev;
     } else {
-        mean_stddev_inv[1] = 0;
-        mean_stddev_inv[2] = 0;
+        *stddev = 0;
+        *invstddev = 0;
     }
     for(int y=0; y<6; y++)
         for(int x=0; x<8; x++)
             *dst++ = src[y*stride+x]*16 - (sum+1)/3;
+}
+
+void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride)
+{
+    int16_t in[48];
+    cast_pixels_test(in, pix, stride);
+    dst[0] = dotproduct(weightsi, in, 48);
+    dst[1] = dotproduct(weightsi+48, in, 48);
+    dst[2] = dotproduct(weightsi+48*2, in, 48);
+    dst[3] = dotproduct(weightsi+48*3, in, 48);
+}
+
+void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width)
+{
+    int16_t in[48];
+    for(int x=5; x<width; x++) {
+        cast_pixels_test(in, pix+2*x-10, stride);
+        for(int i=0; i<4; i++)
+            dst[x][i] = dotproduct(weightsi+48*i, in, 48);
+    }
+}
+
+__attribute__((noinline))
+static int scale_net(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
+{
+    int16_t in[48];
+    float mean, stddev, invstddev;
+    cast_pixels_scale(in, pix, stride, &mean, &stddev, &invstddev);
+    float tmp[NNS*2];
+    for(int i=0; i<NNS*2; i++, weightsi+=48)
+        tmp[i] = dotproduct(weightsi, in, 48) * invstddev * weightsf[(i&~3)*2+(i&3)] + weightsf[(i&~3)*2+(i&3)+4];
+    for(int i=0; i<NNS; i++)
+        tmp[i] = fast_exp2(tmp[i]);
+    for(int i=NNS; i<NNS*2; i++)
+        tmp[i] = sigmoid(tmp[i]);
+    return weighted_average(tmp, tmp+NNS, NNS)*5*stddev+mean+.5f;
+}
+
+__attribute__((noinline))
+static int test_net(const float *weightsf, const int *dotp, float dc)
+{
+    float tmp[12];
+    for(int i=0; i<4; i++)
+        tmp[i] = sigmoid(dotp[i]*weightsf[i] - dc*weightsf[4+i] + weightsf[8+i]);
+    for(int i=0; i<4; i++)
+        tmp[4+i] = sigmoid(dotproductf(weightsf+12+i*4, tmp, 4) + weightsf[28+i]);
+    for(int i=0; i<4; i++)
+        tmp[8+i] = dotproductf(weightsf+32+i*8, tmp, 8) + weightsf[64+i];
+    return fabsf(fmaxf(tmp[8],tmp[9])) > fabsf(fmaxf(tmp[10],tmp[11]));
+}
+
+int test_net_x4(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
+{
+    return test_net(weightsf, dotp[0], dc0)
+         | test_net(weightsf, dotp[1], dc1)<<8
+         | test_net(weightsf, dotp[2], dc2)<<16
+         | test_net(weightsf, dotp[3], dc3)<<24;
+}
+
+static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
+{
+    uint16_t *pretest = retest;
+    int n2 = (n+1)>>1;
+    uint8_t *row1offset = row1-1+2*parity;
+    for(int x=0; x<n2; x++) {
+        dst[2*x] = row1[x];
+        dst[2*x+1] = row1[x];
+        // FIXME check that this is ok for odd width
+        int a = row0[x], b = row1[x], c = row2[x], d = row1offset[x];
+        if((a^b)|(b^c)|(c^d))
+            *pretest++ = 2*x+parity;
+    }
+    return pretest - retest;
+}
+
+static int merge_test_runlength(uint16_t *retest, uint8_t *src, int n)
+{
+    uint16_t *pretest = retest;
+    for(int x=0; x<n; x++)
+        if(!src[x])
+            *pretest++ = x;
+    return pretest - retest;
+}
+
+static void block_sums_core(float *dst, uint16_t *src, int stride, int width)
+{
+    for(int x=0; x<width; x++)
+        dst[x] = src[x] + src[x+stride] + src[x+stride*2] + src[x+stride*3];
+}
+
+static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
+{
+    for(int x=0; x<n; x++)
+        dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
+}
+
+static void transpose(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+{
+    for(int x=0; x<width; x++)
+        for(int y=0; y<height; y++)
+            dst[x*dstride+y] = src[y*sstride+x];
+}
+
+#else // USE_ASM
+#include "nnedi_dsp.c"
+void nnedi_test_dotproduct_sse2(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride);
+void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width);
+int nnedi_test_net_sse2(const float *weightsf, const int *dotp, float dc);
+int nnedi_test_net_x4_ssse3(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3);
+int nnedi_scale_net_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
+void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, int stride, int width);
+void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, int stride, int width);
+#define test_dotproduct nnedi_test_dotproduct_sse2
+#define test_dotproducts nnedi_test_dotproducts_sse2
+#define scale_net nnedi_scale_net_sse2
+#define test_net_x4 nnedi_test_net_x4_ssse3
+#define merge_test_neighbors merge_test_neighbors_ssse3
+#define merge_test_runlength merge_test_runlength_sse2
+#define block_sums_core nnedi_block_sums_core_sse2
+#define bicubic nnedi_bicubic_ssse3
+#define transpose transpose_sse2
+#endif
+
+static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
+{
+    int sum = 0;
+    for(int i=0; i<width; i++)
+        sum += src[i];
+    dst += y*stride;
+    dst[0] = sum;
+    for(int i=1; i<n; i++)
+        dst[i] = sum += src[i+width-1] - src[i-1];
+    dst -= y*stride;
+    if(blocks)
+        block_sums_core(blocks, dst, stride, n);
+}
+
+static void pad_row(uint8_t *src, int width, int height, int stride, int y)
+{
+    if(y<0)
+        memcpy(src+y*stride, src+(-1-y)*stride, width);
+    if(y>=height)
+        memcpy(src+y*stride, src+(2*height-1-y)*stride, width);
+    for(int x=1; x<=5; x++)
+        src[y*stride-x] = src[y*stride-1+x];
+    for(int x=1; x<=6; x++)
+        src[y*stride+width-1+x] = src[y*stride+width-x];
+}
+
+static struct {
+    int initted;
+} dsp;
+
+static void init_dsp(void)
+{
+    if(dsp.initted)
+        return;
+    dsp.initted = 1;
+    uint32_t cpu = 1;
+    if(getenv("noasm"))
+        cpu = 0;
 }
 
 // FIXME cap scaling factors so that intermediate sums don't overflow; or allow 7fff if that works.
@@ -357,6 +266,7 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
     }
     memcpy(dstf+8, src, 60*sizeof(float));
 
+#ifdef USE_ASM
     // transpose weights into the order that asm wants
     int16_t b[48*4];
     int32_t c[24*4];
@@ -365,17 +275,20 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
         b[i] = dsti[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
     for(int i=0; i<24*4; i++)
         c[i] = ((int32_t*)dsti_transpose)[(i&3)*24 + ((i%24)&~3) + ((i+i/24)&3)];
-    for(int i=0; i<16; i++)
-        d[i] = dstf[12 + (i&3)*4 + ((i+(i>>2))&3)];
     for(int i=40; i<48; i++)
         FFSWAP(float, dstf[i], dstf[i+8]);
     FFSWAP(float, dstf[65], dstf[66]);
+    for(int i=0; i<16; i++)
+        d[i] = dstf[12 + (i&3)*4 + ((i+(i>>2))&3)];
     for(int i=0; i<32; i++)
         e[i] = dstf[32 + ((i>>2)&4) + (i&3)*8 + ((i+(i>>2))&3)];
     memcpy(dsti, b, sizeof(b));
     memcpy(dsti_transpose, c, sizeof(c));
     memcpy(dstf+12, d, sizeof(d));
     memcpy(dstf+32, e, sizeof(e));
+#else
+    memcpy(dsti_transpose, dsti, 48*4*sizeof(*dsti));
+#endif
 }
 
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
@@ -418,6 +331,7 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     for(int j=0; j<2*NNS; j++)
         dstf[j] *= M_LOG2E;
 
+#ifdef USE_ASM
     // transpose weights into the order that asm wants
     dsti -= 48*2*NNS;
     for(int j=0; j<2*NNS; j+=16) {
@@ -427,260 +341,7 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
             b[i] = a[96*((i>>2)&3) + 24*(i&3) + 4*(i>>6) + ((i+(i>>4))&3)];
         memcpy(a, b, sizeof(b));
     }
-}
-
-void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, int stride, int width);
-
-static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
-{
-    int sum = 0;
-    for(int i=0; i<width; i++)
-        sum += src[i];
-    dst += y*stride;
-    dst[0] = sum;
-    for(int i=1; i<n; i++)
-        dst[i] = sum += src[i+width-1] - src[i-1];
-    dst -= y*stride;
-    if(blocks) {
-#if 0
-        for(int x=0; x<n; x++)
-            blocks[x] = dst[x] + dst[x+stride] + dst[x+stride*2] + dst[x+stride*3];
-#else
-        nnedi_block_sums_core_sse2(blocks, dst, stride, n);
 #endif
-    }
-}
-
-static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
-{
-    uint16_t *pretest = retest;
-    int n2 = (n+1)>>1;
-    int n32 = (n+31)>>5;
-    int n64 = (n+63)>>6;
-#if 0
-    uint8_t *row1offset = row1-1+2*parity;
-    for(int x=0; x<n2; x++) {
-        dst[2*x] = row1[x];
-        dst[2*x+1] = row1[x];
-        // FIXME check that this is ok for odd width
-        int a = row0[x], b = row1[x], c = row2[x], d = row1offset[x];
-        if((a^b)|(b^c)|(c^d))
-            *pretest++ = 2*x+parity;
-    }
-#else
-    uint16_t *masks = retest+n2-n32;
-#define MERGE(load_row1offset) {\
-        intptr_t x = -n2;\
-        asm("1: \n"\
-            "movdqa   (%3,%1), %%xmm0 \n"\
-            load_row1offset\
-            "movdqa   (%4,%1), %%xmm2 \n"\
-            "movdqa   (%5,%1), %%xmm3 \n"\
-            "pcmpeqb   %%xmm0, %%xmm1 \n"\
-            "pcmpeqb   %%xmm0, %%xmm2 \n"\
-            "pcmpeqb   %%xmm0, %%xmm3 \n"\
-            "pand      %%xmm2, %%xmm1 \n"\
-            "pand      %%xmm3, %%xmm1 \n"\
-            "movdqa    %%xmm0, %%xmm4 \n"\
-            "punpcklbw %%xmm0, %%xmm0 \n"\
-            "punpckhbw %%xmm4, %%xmm4 \n"\
-            "pmovmskb  %%xmm1,  %%eax \n"\
-            "movdqa    %%xmm0,   (%2,%1,2) \n"\
-            "movdqa    %%xmm4, 16(%2,%1,2) \n"\
-            "mov %%ax, (%0) \n"\
-            "add   $2,  %0 \n"\
-            "add  $16,  %1 \n"\
-            "jl 1b \n"\
-            :"+&r"(masks), "+&r"(x)\
-            :"r"(dst+n2*2), "r"(row1+n2), "r"(row0+n2), "r"(row2+n2)\
-            :"eax", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "memory"\
-        );\
-        masks -= n32;\
-    }
-    if(parity) {
-        MERGE("movdqa 16(%3,%1), %%xmm1 \n"
-              "palignr $1, %%xmm0, %%xmm1 \n");
-    } else {
-        MERGE("movdqa %%xmm0, %%xmm1 \n"
-              "palignr $15, -16(%3,%1), %%xmm1 \n");
-    }
-#undef MERGE
-    masks[n32] = 0xffff;
-    uint32_t *masks2 = (uint32_t*)masks;
-    for(int x=0; x<n64; x++) {
-        int x2 = x*64-2+parity;
-        uint32_t mask = ~masks2[x];
-        while(mask) {
-            int tz = __builtin_ctz(mask);
-            x2 += (tz+1)*2;
-            *pretest++ = x2;
-            mask >>= tz;
-            mask >>= 1;
-        }
-    }
-#endif
-    return pretest - retest;
-}
-
-static int merge_test_runlength(uint16_t *retest, uint8_t *src, int n)
-{
-    uint16_t *pretest = retest;
-    for(int x=0; x<n; x+=32) {
-        uint32_t mask, m2;
-        asm("movdqa %2, %%xmm0 \n"
-            "movdqa %3, %%xmm1 \n"
-            "psllw  $7, %%xmm0 \n"
-            "psllw  $7, %%xmm1 \n"
-            "pmovmskb %%xmm0, %0 \n"
-            "pmovmskb %%xmm1, %1 \n"
-            :"=r"(mask), "=r"(m2)
-            :"m"(src[x]), "m"(src[x+16])
-        );
-        mask += m2<<16;
-        mask = ~mask;
-        int x2 = x-1;
-        while(mask) {
-            int tz = __builtin_ctz(mask);
-            x2 += tz+1;
-            *pretest++ = x2;
-            mask >>= tz;
-            mask >>= 1;
-        }
-    }
-    while(pretest > retest && pretest[-1] >= n)
-        pretest--;
-    return pretest - retest;
-}
-
-static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
-{
-    for(int x=0; x<n; x++)
-        dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
-}
-
-static void transpose8x8(uint8_t *dst, uint8_t *src, intptr_t dstride, intptr_t sstride)
-{
-#if 0
-    for(int x=0; x<8; x++)
-        for(int y=0; y<8; y++)
-            dst[x*dstride+y] = src[y*sstride+x];
-#else
-    asm("movq   (%4),      %%xmm0 \n"
-        "movq   (%4,%6),   %%xmm1 \n"
-        "movq   (%4,%6,2), %%xmm2 \n"
-        "movq   (%4,%7),   %%xmm3 \n"
-        "movhps (%5),      %%xmm0 \n"
-        "movhps (%5,%6),   %%xmm1 \n"
-        "movhps (%5,%6,2), %%xmm2 \n"
-        "movhps (%5,%7),   %%xmm3 \n"
-
-        "movdqa    %%xmm0, %%xmm4 \n"
-        "movdqa    %%xmm2, %%xmm5 \n"
-        "punpcklbw %%xmm1, %%xmm0 \n"
-        "punpckhbw %%xmm1, %%xmm4 \n"
-        "punpcklbw %%xmm3, %%xmm2 \n"
-        "punpckhbw %%xmm3, %%xmm5 \n"
-
-        "movdqa    %%xmm0, %%xmm1 \n"
-        "movdqa    %%xmm4, %%xmm3 \n"
-        "punpcklwd %%xmm2, %%xmm0 \n"
-        "punpckhwd %%xmm2, %%xmm1 \n"
-        "punpcklwd %%xmm5, %%xmm4 \n"
-        "punpckhwd %%xmm5, %%xmm3 \n"
-
-        "movdqa    %%xmm0, %%xmm2 \n"
-        "movdqa    %%xmm1, %%xmm5 \n"
-        "punpckldq %%xmm4, %%xmm0 \n"
-        "punpckhdq %%xmm4, %%xmm2 \n"
-        "punpckldq %%xmm3, %%xmm1 \n"
-        "punpckhdq %%xmm3, %%xmm5 \n"
-
-        "movq   %%xmm0, (%0)      \n"
-        "movhps %%xmm0, (%0,%2)   \n"
-        "movq   %%xmm2, (%0,%2,2) \n"
-        "movhps %%xmm2, (%0,%3)   \n"
-        "movq   %%xmm1, (%1)      \n"
-        "movhps %%xmm1, (%1,%2)   \n"
-        "movq   %%xmm5, (%1,%2,2) \n"
-        "movhps %%xmm5, (%1,%3)   \n"
-
-        ::"r"(dst), "r"(dst+dstride*4), "r"(dstride), "r"(dstride*3),
-          "r"(src), "r"(src+sstride*4), "r"(sstride), "r"(sstride*3)
-          // FIXME #regs
-    );
-#endif
-}
-
-static void transpose(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
-{
-#if 0
-    for(int x=0; x<width; x++)
-        for(int y=0; y<height; y++)
-            dst[x*dstride+y] = src[y*sstride+x];
-#elif 0
-    for(int x=0; x<width-7; x+=8)
-        for(int y=0; y<height-7; y+=8)
-            transpose8x8(dst+x*dstride+y, src+y*sstride+x, dstride, sstride);
-    for(int x=width&~7; x<width; x++)
-        for(int y=0; y<(height&~7); y++)
-            dst[x*dstride+y] = src[y*sstride+x];
-    for(int x=0; x<width; x++)
-        for(int y=height&~7; y<height; y++)
-            dst[x*dstride+y] = src[y*sstride+x];
-#else
-    for(int y=0; y<height-31; y+=32)
-        for(int x=0; x<width-7; x+=8) {
-            transpose8x8(dst+x*dstride+y+0, src+(y+0)*sstride+x, dstride, sstride);
-            transpose8x8(dst+x*dstride+y+8, src+(y+8)*sstride+x, dstride, sstride);
-            transpose8x8(dst+x*dstride+y+16, src+(y+16)*sstride+x, dstride, sstride);
-            transpose8x8(dst+x*dstride+y+24, src+(y+24)*sstride+x, dstride, sstride);
-        }
-    for(int y=height&~31; y<height-7; y+=8)
-        for(int x=0; x<width-7; x+=8)
-            transpose8x8(dst+x*dstride+y, src+y*sstride+x, dstride, sstride);
-    if(width&7)
-        for(int y=0; y<(height&~7); y++)
-            for(int x=width&~7; x<width; x++)
-                dst[x*dstride+y] = src[y*sstride+x];
-    if(height&7)
-        for(int x=0; x<width; x++)
-            for(int y=height&~7; y<height; y++)
-                dst[x*dstride+y] = src[y*sstride+x];
-#endif
-}
-
-static void pad_row(uint8_t *src, int width, int height, int stride, int y)
-{
-    if(y<0)
-        memcpy(src+y*stride, src+(-1-y)*stride, width);
-    if(y>=height)
-        memcpy(src+y*stride, src+(2*height-1-y)*stride, width);
-    for(int x=1; x<=5; x++)
-        src[y*stride-x] = src[y*stride-1+x];
-    for(int x=1; x<=6; x++)
-        src[y*stride+width-1+x] = src[y*stride+width-x];
-}
-
-
-v4si nnedi_test_dotproduct_sse2(const int16_t *weightsi, const uint8_t *pix, int stride);
-void nnedi_test_dotproducts_sse2(const int16_t *weightsi, v4si *dst, const uint8_t *pix, int stride, int width);
-int nnedi_test_net_sse2(const float *weightsf, v4si dotp, float dc);
-int nnedi_test_net_x4_ssse3(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3);
-int nnedi_scale_net_sse2(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride);
-void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, int stride, int width);
-
-static struct {
-    int initted;
-} dsp;
-
-static void init_dsp(void)
-{
-    if(dsp.initted)
-        return;
-    dsp.initted = 1;
-    uint32_t cpu = 1;
-    if(getenv("noasm"))
-        cpu = 0;
 }
 
 static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
@@ -692,7 +353,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     uint8_t *tested = memalign(16, 3*tstride+16); // FIXME only needs stride=align(tstride/2+2)
     uint8_t *tested2 = memalign(16, tstride+16);
     uint16_t *retest = memalign(16, (tstride+32)*sizeof(uint16_t));
-    v4si *test_dotp = memalign(16, tstride/2*sizeof(v4si));
+    int (*test_dotp)[4] = memalign(16, tstride*2*sizeof(int));
     memset(tested, 0, 3*tstride+16);
     tested += 16;
     ALIGNED_16(int16_t test_weights_i[48*4]);
@@ -715,22 +376,22 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             block_sums(sum_12x4[testy&1], sum_w12, src+(testy+2)*sstride-5, width, 12, testy&3, tstride);
             uint8_t *pix = src+(testy-1)*sstride-5+!(testy&1);
             int end = (width+(testy&1))>>1;
-            nnedi_test_dotproducts_sse2(test_weights_i_transpose, test_dotp, pix, sstride, end+5);
+            test_dotproducts(test_weights_i_transpose, test_dotp, pix, sstride, end+5);
             uint8_t *pt = tested+(testy%3)*tstride;
             float *dc = sum_12x4[testy&1]+!(testy&1);
             for(int x=0; x<end; x+=4)
-                *(uint32_t*)(pt+x) = nnedi_test_net_x4_ssse3(test_weights_f, test_dotp+x+5, dc[x*2], dc[x*2+2], dc[x*2+4], dc[x*2+6]);
+                *(uint32_t*)(pt+x) = test_net_x4(test_weights_f, test_dotp+x+5, dc[x*2], dc[x*2+2], dc[x*2+4], dc[x*2+6]);
             pt[end] = 0;
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
         uint8_t *pix = src+(y-1)*sstride-5;
         for(int i=0; i<nretest; i++)
-            test_dotp[i] = nnedi_test_dotproduct_sse2(test_weights_i, pix+retest[i], sstride);
+            test_dotproduct(test_weights_i, test_dotp[i], pix+retest[i], sstride);
         float *dc = sum_12x4[y&1];
         retest[nretest] = retest[nretest+1] = retest[nretest+2] = width+1;
         for(int i=0; i<nretest; i+=4) {
-            uint32_t v = nnedi_test_net_x4_ssse3(test_weights_f, test_dotp+i, dc[retest[i+0]], dc[retest[i+1]], dc[retest[i+2]], dc[retest[i+3]]);
+            uint32_t v = test_net_x4(test_weights_f, test_dotp+i, dc[retest[i+0]], dc[retest[i+1]], dc[retest[i+2]], dc[retest[i+3]]);
             tested2[retest[i+0]] = v;
             tested2[retest[i+1]] = v>>8;
             tested2[retest[i+2]] = v>>16;
@@ -738,13 +399,13 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         }
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
-        nnedi_bicubic_ssse3(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
+        bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
         pix = src+(y-2)*sstride-3;
         uint8_t *dpix = dst+(y*2+1)*dstride;
         nretest = merge_test_runlength(retest, tested2, width);
         for(int i=0; i<nretest; i++) {
             int x = retest[i];
-            int v = nnedi_scale_net_sse2(scale_weights_i, scale_weights_f, pix+x, sstride);
+            int v = scale_net(scale_weights_i, scale_weights_f, pix+x, sstride);
             dpix[x] = av_clip_uint8(v);
         }
     }

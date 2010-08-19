@@ -141,17 +141,17 @@ cglobal scale_dotproduct_sse2
     pmaddwd m %+ %%i, m %+ %%j
 %endmacro
 
-; v4si test_dotproduct(const int16_t *weightsi, const uint8_t *pix, int stride)
-cglobal test_dotproduct_sse2, 3,4,16
-    lea        r3, [r2*3]
-    movq      m10, [r1]
-    movd      m11, [r1+8]
-    movd       m1, [r1+r2]
-    movq      m12, [r1+r2+4]
-    movq      m13, [r1+r2*2]
-    movd      m14, [r1+r2*2+8]
-    movd       m2, [r1+r3]
-    movq      m15, [r1+r3+4]
+; void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride)
+cglobal test_dotproduct_sse2, 4,5,16
+    lea        r4, [r3*3]
+    movq      m10, [r2]
+    movd      m11, [r2+8]
+    movd       m1, [r2+r3]
+    movq      m12, [r2+r3+4]
+    movq      m13, [r2+r3*2]
+    movd      m14, [r2+r3*2+8]
+    movd       m2, [r2+r4]
+    movq      m15, [r2+r4+4]
     pxor       m0, m0
     punpckldq m11, m1
     punpckldq m14, m2
@@ -163,7 +163,6 @@ cglobal test_dotproduct_sse2, 3,4,16
     punpcklbw m15, m0
 
 %assign offset 0
-    SWAP 0, 4
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_LOAD 2
@@ -184,6 +183,7 @@ cglobal test_dotproduct_sse2, 3,4,16
     DOTP_ACC  22
     DOTP_ACC  23
     HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above
+    mova [r1], m4
     RET
 
 
@@ -234,7 +234,7 @@ cglobal test_dotproduct_sse2, 3,4,16
     CAT_UNDEF tmp, %%n
 %endmacro
 
-; void test_dotproducts(const int16_t *weightsi, v4si *dst, const uint8_t *pix, int stride, int width)
+; void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width)
 cglobal test_dotproducts_sse2, 5,7
 %assign offset0 128
 %assign offset1 384
@@ -242,7 +242,7 @@ cglobal test_dotproducts_sse2, 5,7
     lea      r6, [r0+offset1]
     add      r0, offset0
 .loop:
-    movq      m12, [r2]
+    movq      m12, [r2] ; FIXME palignr?
     movq      m13, [r2+r3]
     movq      m14, [r2+r3*2]
     movq      m15, [r2+r5]
@@ -466,15 +466,15 @@ cglobal scale_net_sse2, 4,6,16
 
 
 
-; int test_net(const float *weightsf, v4si dotp, float dc)
-cglobal test_net_sse2, 1,1
+; int test_net(const float *weightsf, const int *dotp, float dc)
+cglobal test_net_sse2, 2,2
     add      r0, 0x80
-    pshufd   m9, m1, 0 ; dc
-    mulps    m9, [r0-0x70]
-    cvtdq2ps m0, m0 ; dotp
-    subps    m9, [r0-0x60]
+    pshufd   m1, m0, 0 ; dc
+    mulps    m1, [r0-0x70]
+    cvtdq2ps m0, [r1] ; dotp
+    subps    m1, [r0-0x60]
     mulps    m0, [r0-0x80]
-    subps    m0, m9
+    subps    m0, m1
     movaps   m_1,   [ps_1]
     movaps   m_abs, [ps_abs]
     movaps   m1, [r0-0x50]
@@ -560,7 +560,7 @@ cglobal test_net_sse2, 1,1
     addps    %1, m10
 %endmacro
 
-; int test_net_x4(const float *weightsf, const v4si *dotp, float dc0, float dc1, float dc2, float dc3)
+; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
 cglobal test_net_x4_ssse3, 2,2
 %define buf rsp-0x88
     add      r0, 0x80
