@@ -120,15 +120,15 @@ cglobal scale_dotproduct_sse2
     DOTP_MUL  94
     DOTP_ACC  92
     DOTP_MUL  95
-    mova  [r2], m0
+    mova  [r1], m0
     DOTP_ACC  93
     DOTP_ACC  94
-    mova  [r2+16], m1
+    mova  [r1+16], m1
     add        r0, 48*2*16+128-offset
     DOTP_ACC  95
-    mova  [r2+32], m2
-    mova  [r2+48], m3
-    add        r2, 64
+    mova  [r1+32], m2
+    mova  [r1+48], m3
+    add        r1, 64
     ret
 
 %else ; X86_32
@@ -141,14 +141,14 @@ cglobal scale_dotproduct_sse2
 %assign i i+1
 %endrep
     DOTP_LOAD 95
-    mova  [r2], m0
+    mova  [r1], m0
     DOTP_MUL  95
-    mova  [r2+16], m1
+    mova  [r1+16], m1
     add        r0, 48*2*16+128-offset
     DOTP_ACC  95
-    mova  [r2+32], m2
-    mova  [r2+48], m3
-    add        r2, 64
+    mova  [r1+32], m2
+    mova  [r1+48], m3
+    add        r1, 64
     ret
 %endif
 
@@ -456,8 +456,8 @@ cglobal test_dotproducts_sse2, 5,7,8
 %endmacro
 
 
-; int scale_net(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
-cglobal scale_net_sse2, 4,5,16
+; int scale_net(struct { int16_t i[48*2*NNS]; float f[4*NNS]; } *weights, const uint8_t *pix, int stride)
+cglobal scale_net_sse2, 3,4,16
     %assign stack_pad NNS*8+16+((-stack_offset-gprsize)&15)
 %ifdef ARCH_X86_64
     %define buf rsp
@@ -472,21 +472,21 @@ cglobal scale_net_sse2, 4,5,16
     SUB       rsp, stack_pad
 
     ; compute sum and sum squared
-    lea        r4, [r3*3]
-    add        r4, r2
+    lea        r3, [r2*3]
+    add        r3, r1
     pxor       m0, m0
 %ifdef ARCH_X86_64
-    LOAD_SUM_SQUARE m10, m11, m1, m2, m3, [r2], [r2+r3]
-    LOAD_SUM_SQUARE m12, m13, m3, m4, m5, [r2+r3*2], [r4]
+    LOAD_SUM_SQUARE m10, m11, m1, m2, m3, [r1], [r1+r2]
+    LOAD_SUM_SQUARE m12, m13, m3, m4, m5, [r1+r2*2], [r3]
     paddd      m2, m4
     paddd      m1, m3
-    LOAD_SUM_SQUARE m14, m15, m3, m4, m5, [r4+r3], [r4+r3*2]
+    LOAD_SUM_SQUARE m14, m15, m3, m4, m5, [r3+r2], [r3+r2*2]
 %else
-    LOAD_SUM_SQUARE [spill+0x00], [spill+0x10], m1, m2, m3, [r2], [r2+r3]
-    LOAD_SUM_SQUARE [spill+0x20], [spill+0x30], m3, m4, m5, [r2+r3*2], [r4]
+    LOAD_SUM_SQUARE [spill+0x00], [spill+0x10], m1, m2, m3, [r1], [r1+r2]
+    LOAD_SUM_SQUARE [spill+0x20], [spill+0x30], m3, m4, m5, [r1+r2*2], [r3]
     paddd      m2, m4
     paddd      m1, m3
-    LOAD_SUM_SQUARE [spill+0x40], [spill+0x50], m3, m4, m5, [r4+r3], [r4+r3*2]
+    LOAD_SUM_SQUARE [spill+0x40], [spill+0x50], m3, m4, m5, [r3+r2], [r3+r2*2]
 %endif
     paddd      m2, m4
     paddd      m1, m3
@@ -496,20 +496,20 @@ cglobal scale_net_sse2, 4,5,16
     paddd      m1, m3
     pshuflw    m3, m1, 14
     paddd      m1, m3
-    movd      r4d, m2
-    movd      r3d, m1
+    movd      r3d, m2
+    movd      r2d, m1
 
     ; compute means and stddev
     xorps      m2, m2
-    cvtsi2ss   m2, r4d
-    imul      r3d, 48
+    cvtsi2ss   m2, r3d
+    imul      r2d, 48
     mulss      m2, [ss_1_3]
     cvtps2dq   m3, m2
-    imul      r4d, r4d
+    imul      r3d, r3d
     mulss      m2, [ss_1_16]
-    sub       r3d, r4d
+    sub       r2d, r3d
     jle .zero
-    cvtsi2ss   m1, r3d
+    cvtsi2ss   m1, r2d
     movss  [mean], m2
     rsqrtss    m1, m1
     mulss      m1, [ss_48]
@@ -536,7 +536,7 @@ cglobal scale_net_sse2, 4,5,16
 
     ; neural net
     add      r0, 128
-    lea      r2, [buf]
+    lea      r1, [buf]
 %rep NNS/8
     call scale_dotproduct_sse2
 %endrep
@@ -570,21 +570,20 @@ cglobal scale_net_sse2, 4,5,16
     shufps   m_invstddev, m_invstddev, 0
 %endif
 
-    add      r1, NNS*8
     xorps    m4, m4
     xorps    m5, m5
 %assign i 0
 %rep NNS/4
-    movaps   m2, [r1+i*8-NNS*8]
-    movaps   m3, [r1+i*8]
+    movaps   m2, [r0+i*8-128]
+    movaps   m3, [r0+i*8-128+NNS*8]
     cvtdq2ps m0, [buf+i*4]
     cvtdq2ps m1, [buf+i*4+NNS*4]
     mulps    m2, m_invstddev
     mulps    m3, m_invstddev
     mulps    m0, m2
     mulps    m1, m3 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
-    addps    m0, [r1+i*8+16-NNS*8]
-    addps    m1, [r1+i*8+16]
+    addps    m0, [r0+i*8+16-128]
+    addps    m1, [r0+i*8+16-128+NNS*8]
     SIGMOID  m1, m2
     EXP2     m0, m2, m3
     mulps    m1, m0
