@@ -136,33 +136,41 @@ cglobal scale_dotproduct_sse2
 
 %macro DOTP_MUL2 1
     %assign %%n %1
+%ifdef HAVE_16REGS
     %assign %%j 10 + (%%n / 4)
+%else
+    %assign %%j 7
+%endif
     %assign %%i tmp %+ %%n
     pmaddwd m %+ %%i, m %+ %%j
 %endmacro
 
-; void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride)
-cglobal test_dotproduct_sse2, 4,5,16
-    lea        r4, [r3*3]
-    movq      m10, [r2]
-    movd      m11, [r2+8]
-    movd       m1, [r2+r3]
-    movq      m12, [r2+r3+4]
-    movq      m13, [r2+r3*2]
-    movd      m14, [r2+r3*2+8]
-    movd       m2, [r2+r4]
-    movq      m15, [r2+r4+4]
-    pxor       m0, m0
-    punpckldq m11, m1
-    punpckldq m14, m2
-    punpcklbw m10, m0
-    punpcklbw m12, m0
-    punpcklbw m13, m0
-    punpcklbw m11, m0
-    punpcklbw m14, m0
-    punpcklbw m15, m0
+%macro LOAD12x4 8
+    lea       r4, [r3*3]
+    movq      %1, [r2]
+    movd      %2, [r2+8]
+    movd      %7, [r2+r3]
+    movq      %3, [r2+r3+4]
+    movq      %4, [r2+r3*2]
+    movd      %5, [r2+r3*2+8]
+    movd      %8, [r2+r4]
+    movq      %6, [r2+r4+4]
+    punpckldq %2, %7
+    pxor      %7, %7
+    punpckldq %5, %8
+    punpcklbw %1, %7
+    punpcklbw %3, %7
+    punpcklbw %4, %7
+    punpcklbw %2, %7
+    punpcklbw %5, %7
+    punpcklbw %6, %7
+%endmacro
 
+; void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride)
 %assign offset 0
+%ifdef HAVE_16REGS
+cglobal test_dotproduct_sse2, 4,5,16
+    LOAD12x4 m10, m11, m12, m13, m14, m15, m0, m1
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_LOAD 2
@@ -186,6 +194,36 @@ cglobal test_dotproduct_sse2, 4,5,16
     mova [r1], m4
     RET
 
+%else ; X86_32
+cglobal test_dotproduct_sse2, 4,5,8
+    sub rsp, 0x60-gprsize
+    LOAD12x4 m7, m0, m1, m2, m3, m4, m5, m6
+    mova [rsp+0x00], m0
+    mova [rsp+0x10], m1
+    mova [rsp+0x20], m2
+    mova [rsp+0x30], m3
+    mova [rsp+0x40], m4
+    DOTP_LOAD 0
+    DOTP_LOAD 1
+    DOTP_MUL2 0
+%assign i 0
+%rep 22
+    DOTP_LOAD i+2
+    DOTP_MUL2 i+1
+%if ((i+2)&3)==0
+    mova m7, [rsp+((i+2)/4-1)*16]
+%endif
+    DOTP_ACC  i+0
+%assign i i+1
+%endrep
+    DOTP_MUL2 23
+    DOTP_ACC  22
+    DOTP_ACC  23
+    HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above
+    mova [r1], m4
+    add rsp, 0x60-gprsize
+    RET
+%endif
 
 
 %macro DOTP_LOAD3 1
