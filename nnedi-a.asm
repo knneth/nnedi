@@ -215,7 +215,8 @@ cglobal test_dotproduct_sse2, 4,5,16
 
 %else ; X86_32
 cglobal test_dotproduct_sse2, 4,5,8
-    sub rsp, 0x60-gprsize
+%assign stack_pad 0x50+((-stack_offset-gprsize)&15)
+    SUB rsp, stack_pad
     LOAD12x4 m7, m0, m1, m2, m3, m4, m5, m6
     mova [rsp+0x00], m0
     mova [rsp+0x10], m1
@@ -240,7 +241,7 @@ cglobal test_dotproduct_sse2, 4,5,8
     DOTP_ACC  23
     HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above
     mova [r1], m4
-    add rsp, 0x60-gprsize
+    ADD rsp, stack_pad
     RET
 %endif
 
@@ -368,7 +369,8 @@ cglobal test_dotproducts_sse2, 5,7,16
 %else ; X86_32
 cglobal test_dotproducts_sse2, 5,7,8
 %define m_pix m7
-    sub     rsp, 0x60-gprsize
+%assign stack_pad 0x50+((-stack_offset-gprsize)&15)
+    SUB     rsp, stack_pad
     lea      r5, [r3*3]
     lea      r6, [r0+offset1]
     add      r0, offset0
@@ -408,7 +410,7 @@ cglobal test_dotproducts_sse2, 5,7,8
     dec      r4
     jg .loop
 .ret:
-    add     rsp, 0x60-gprsize
+    ADD     rsp, stack_pad
     RET
 %endif
 
@@ -456,18 +458,18 @@ cglobal test_dotproducts_sse2, 5,7,8
 
 ; int scale_net(const int16_t *weightsi, const float *weightsf, const uint8_t *pix, int stride)
 cglobal scale_net_sse2, 4,6,16
-    %assign stack_size NNS*8+24
+    %assign stack_pad NNS*8+16+((-stack_offset-gprsize)&15)
 %ifdef ARCH_X86_64
     %define buf rsp
 %else
-    %assign stack_size stack_size+0x60
+    %assign stack_pad stack_pad+0x60
     %define spill rsp
     %define buf rsp+0x60
 %endif
     %define mean buf+NNS*8
     %define stddev mean+4
     %define invstddev stddev+4
-    sub      rsp, stack_size
+    SUB       rsp, stack_pad
 
     ; compute sum and sum squared
     lea        r4, [r3*3]
@@ -601,12 +603,12 @@ cglobal scale_net_sse2, 4,6,16
     mulss    m0, m1
     addss    m0, [mean]
     cvtss2si eax, m0
-    add rsp, stack_size
+    ADD rsp, stack_pad
     RET
 
 .zero:
     cvtss2si eax, m2
-    add rsp, stack_size
+    ADD rsp, stack_pad
     RET
 
 
@@ -838,12 +840,17 @@ cglobal test_net_x4_ssse3, 2,2
 
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
 cglobal test_net_x4_ssse3, 2,2
-    sub     rsp, 0x70-gprsize
+    movd     m4, r2m
+    movd     m5, r3m
+    movd     m6, r4m
+    movd     m7, r5m
+%assign stack_pad 0x60+((-stack_offset-gprsize)&15)
+    SUB     rsp, stack_pad
     add      r0, 0x80
-    pshufd   m4, m0, 0
-    pshufd   m5, m1, 0
-    pshufd   m6, m2, 0
-    pshufd   m7, m3, 0
+    pshufd   m4, m4, 0
+    pshufd   m5, m5, 0
+    pshufd   m6, m6, 0
+    pshufd   m7, m7, 0
     movaps   m0, [r0-0x70]
     movaps   m1, [r0-0x60]
     mulps    m4, m0
@@ -921,7 +928,7 @@ cglobal test_net_x4_ssse3, 2,2
     psrld    m0, 31
     pshufb   m0, m2 ; the only non-sse2 instruction
     movd    eax, m0
-    add     rsp, 0x70-gprsize
+    ADD     rsp, stack_pad
     RET
 %endif
 
