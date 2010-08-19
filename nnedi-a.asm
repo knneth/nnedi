@@ -8,10 +8,10 @@ ps_exp_c1:   times 4 dd 0.701277797 ; 1.01173*M_LN2
 ps_exp_c2:   times 4 dd 0.237348593 ; 0.49401*M_LN2*M_LN2
 ps_1:        times 4 dd 1.0
 ps_abs:      times 4 dd 0x7fffffff
+ps_5:        times 4 dd 5.0
 pb_38_m6:    times 8 db 38,-6
 pw_32:       times 8 dw 32
 shuf_packdb  db 0,4,8,12,0,0,0,0,0,0,0,0,0,0,0,0
-ss_5:        dd 5.0
 ss_48        dd 48.0
 ss_1_3:      dd 0.3333333333
 ss_1_16:     dd 0.0625
@@ -25,6 +25,21 @@ INIT_XMM
     addps      %1, %2
     pshuflw    %2, %1, 0xe
     addss      %1, %2
+%endmacro
+
+%macro HADDPS_X4 5 ; dst, s0, s1, s2, s3
+    movaps     %1, %2
+    unpcklpd   %2, %3
+    unpckhpd   %1, %3
+    addps      %1, %2
+    movaps     %2, %4
+    unpcklpd   %4, %5
+    unpckhpd   %2, %5
+    addps      %2, %4
+    movaps     %4, %1
+    shufps     %1, %2, 0x88
+    shufps     %4, %2, 0xdd
+    addps      %1, %4
 %endmacro
 
 %macro HADDPI_X4 5 ; dst, s0, s1, s2, s3
@@ -457,8 +472,8 @@ cglobal test_dotproducts_sse2, 5,7,8
 
 
 ; int scale_net(struct { int16_t i[48*2*NNS]; float f[4*NNS]; } *weights, const uint8_t *pix, int stride)
-cglobal scale_net_sse2, 3,4,16
-    %assign stack_pad NNS*8+16+((-stack_offset-gprsize)&15)
+cglobal scale_net_sse2
+    %assign stack_pad NNS*8+16+((-gprsize)&15)
 %ifdef ARCH_X86_64
     %define buf rsp
 %else
@@ -497,25 +512,26 @@ cglobal scale_net_sse2, 3,4,16
     pshuflw    m3, m1, 14
     paddd      m1, m3
     movd      r3d, m2
-    movd      r2d, m1
+    movd      r1d, m1
 
     ; compute means and stddev
     xorps      m2, m2
     cvtsi2ss   m2, r3d
-    imul      r2d, 48
+    imul      r1d, 48
     mulss      m2, [ss_1_3]
     cvtps2dq   m3, m2
     imul      r3d, r3d
     mulss      m2, [ss_1_16]
-    sub       r2d, r3d
+    sub       r1d, r3d
     jle .zero
-    cvtsi2ss   m1, r2d
+    cvtsi2ss   m1, r1d
     movss  [mean], m2
     rsqrtss    m1, m1
     mulss      m1, [ss_48]
     movss  [invstddev], m1
     rcpss      m1, m1
     movss  [stddev], m1
+.unzero:
 
     ; remove mean
     pshuflw    m3, m3, 0
@@ -570,44 +586,201 @@ cglobal scale_net_sse2, 3,4,16
     shufps   m_invstddev, m_invstddev, 0
 %endif
 
-    xorps    m4, m4
-    xorps    m5, m5
+    xorps    m0, m0
+    xorps    m1, m1
 %assign i 0
 %rep NNS/4
-    movaps   m2, [r0+i*8-128]
-    movaps   m3, [r0+i*8-128+NNS*8]
-    cvtdq2ps m0, [buf+i*4]
-    cvtdq2ps m1, [buf+i*4+NNS*4]
-    mulps    m2, m_invstddev
-    mulps    m3, m_invstddev
-    mulps    m0, m2
-    mulps    m1, m3 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
-    addps    m0, [r0+i*8+16-128]
-    addps    m1, [r0+i*8+16-128+NNS*8]
-    SIGMOID  m1, m2
-    EXP2     m0, m2, m3
-    mulps    m1, m0
-    addps    m4, m0
-    addps    m5, m1
+    movaps   m4, [r0+i*8-128]
+    movaps   m5, [r0+i*8-128+NNS*8]
+    cvtdq2ps m2, [buf+i*4]
+    cvtdq2ps m3, [buf+i*4+NNS*4]
+    mulps    m4, m_invstddev
+    mulps    m5, m_invstddev
+    mulps    m2, m4
+    mulps    m3, m5 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
+    addps    m2, [r0+i*8+16-128]
+    addps    m3, [r0+i*8+16-128+NNS*8]
+    SIGMOID  m3, m4
+    EXP2     m2, m4, m5
+    mulps    m3, m2
+    addps    m0, m2
+    addps    m1, m3
 %assign i i+4
 %endrep
-
-    ; FIXME merge several instances? or is OOE enough?
-    HADDPS   m0, m4
-    movss    m2, [ss_5]
-    HADDPS   m1, m5
-    mulss    m2, [stddev]
-    rcpss    m0, m0
-    mulss    m1, m2
-    mulss    m0, m1
-    addss    m0, [mean]
-    cvtss2si eax, m0
+    sub      r0, 48*4*NNS+128
+    movss    m2, [stddev]
+    movss    m3, [mean]
     ADD rsp, stack_pad
-    RET
+    ret
 
 .zero:
-    cvtss2si eax, m2
-    ADD rsp, stack_pad
+    ; FIXME could return now
+    xorps    m0, m0
+    movss  [mean], m2
+    movss  [stddev], m0
+    movss  [invstddev], m0
+    jmp .unzero
+
+
+
+%macro SCALE_NET_TAIL 1
+    HADDPS   m4, m0
+    HADDPS   m5, m1
+    mulss    m2, [ps_5]
+    rcpss    m0, m4
+    mulss    m5, m2
+    mulss    m0, m5
+    addss    m0, m3
+    cvtss2si %1, m0
+    test     %1, ~255
+    jz %%.noclip
+    not      %1
+    sar      %1, 31
+    shr      %1, 24
+%%.noclip:
+%endmacro
+
+; int scale_nets(const int16_t *weights, const uint8_t *pix, int stride, uint8_t *dst, const uint16_t *offsets, int n)
+cglobal scale_nets_sse2, 6,7,16
+%ifdef ARCH_X86_64
+    PUSH    r12
+    PUSH    r13
+    PUSH    r14
+    mov      r6, r1
+    mov     r10, r3
+%endif
+    %assign stack_pad 0x80+((-stack_offset-gprsize)&15)
+    SUB     rsp, stack_pad
+    sub      r5, 3
+    jle .skip4
+
+.loop4:
+%ifdef ARCH_X86_64
+    movzx   r14, word [r4+6]
+    movzx   r13, word [r4+4]
+    movzx   r12, word [r4+2]
+    movzx   r11, word [r4]
+    lea      r1, [r6+r14]
+%else
+    mov      r6, r1m
+    movzx    r1, word [r4+6]
+    add      r1, r6
+%endif
+    call scale_net_sse2
+    movaps [rsp+0x20], m0
+    movaps [rsp+0x50], m1
+    movss  [rsp+0x6c], m2
+    movss  [rsp+0x7c], m3
+%ifdef ARCH_X86_64
+    lea      r1, [r6+r13]
+%else
+    movzx    r1, word [r4+4]
+    add      r1, r6
+%endif
+    call scale_net_sse2
+    movaps [rsp+0x10], m0
+    movaps [rsp+0x40], m1
+    movss  [rsp+0x68], m2
+    movss  [rsp+0x78], m3
+%ifdef ARCH_X86_64
+    lea      r1, [r6+r12]
+%else
+    movzx    r1, word [r4+2]
+    add      r1, r6
+%endif
+    call scale_net_sse2
+    movaps [rsp+0x00], m0
+    movaps [rsp+0x30], m1
+    movss  [rsp+0x64], m2
+    movss  [rsp+0x74], m3
+%ifdef ARCH_X86_64
+    lea      r1, [r6+r11]
+%else
+    movzx    r1, word [r4]
+    add      r1, r6
+%endif
+    call scale_net_sse2
+    SWAP 4, 0
+    movaps   m5, [rsp+0x00]
+    movaps   m6, [rsp+0x10]
+    movaps   m7, [rsp+0x20]
+    HADDPS_X4 m0, m4, m5, m6, m7
+    SWAP 4, 1
+    movaps   m5, [rsp+0x30]
+    movaps   m6, [rsp+0x40]
+    movaps   m7, [rsp+0x50]
+    HADDPS_X4 m1, m4, m5, m6, m7
+    movaps   m4, [rsp+0x60]
+    movaps   m5, [rsp+0x70]
+    movss    m4, m2
+    movss    m5, m3
+    mulps    m4, [ps_5]
+    rcpps    m0, m0
+    mulps    m1, m4
+    mulps    m0, m1
+    addps    m0, m5
+    cvtps2dq m0, m0
+%ifdef ARCH_X86_64
+    packuswb m0, m0
+    movq     r1, m0
+    mov      [r10+r11], r1b
+    shr      r1, 16
+    mov      [r10+r12], r1b
+    shr      r1, 16
+    mov      [r10+r13], r1b
+    shr      r1, 16
+    mov      [r10+r14], r1b
+%else
+    packssdw m0, m0
+    packuswb m0, m0
+    movd     r1, m0
+    mov      r3, r3m
+    movzx    r6, word [r4]
+    mov      [r3+r6], r1b
+    shr      r1, 8
+    movzx    r6, word [r4+2]
+    mov      [r3+r6], r1b
+    shr      r1, 8
+    movzx    r6, word [r4+4]
+    mov      [r3+r6], r1b
+    shr      r1, 8
+    movzx    r6, word [r4+6]
+    mov      [r3+r6], r1b
+%endif
+    add      r4, 8
+    sub      r5, 4
+    jg .loop4
+
+    RESET_MM_PERMUTATION
+.skip4:
+    add      r5, 3
+    jle .ret
+.loop1:
+%ifdef ARCH_X86_64
+    movzx   r11, word [r4]
+    lea      r1, [r6+r11]
+    call scale_net_sse2
+    SCALE_NET_TAIL r1d
+    mov      [r10+r11], r1b
+%else
+    movzx    r1, word [r4]
+    add      r1, r1m
+    call scale_net_sse2
+    SCALE_NET_TAIL r1d
+    movzx    r3, word [r4]
+    add      r3, r3m
+    mov      [r3], r1b
+%endif
+    add      r4, 2
+    dec      r5
+    jg .loop1
+.ret:
+    ADD     rsp, stack_pad
+%ifdef ARCH_X86_64
+    POP     r14
+    POP     r13
+    POP     r12
+%endif
     RET
 
 

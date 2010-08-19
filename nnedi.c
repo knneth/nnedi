@@ -121,7 +121,13 @@ static int scale_net(const int16_t *weights, const uint8_t *pix, int stride)
         tmp[i] = fast_exp2(tmp[i]);
     for(int i=NNS; i<NNS*2; i++)
         tmp[i] = sigmoid(tmp[i]);
-    return weighted_average(tmp, tmp+NNS, NNS)*5*stddev+mean+.5f;
+    return av_clip_uint8(weighted_average(tmp, tmp+NNS, NNS)*5*stddev+mean+.5f);
+}
+
+static int scale_nets(const int16_t *weights, const uint8_t *pix, int stride, uint8_t *dst, const uint16_t *offsets, int n)
+{
+    for(int i=0; i<n; i++)
+        dst[offsets[i]] = scale_net(weights, pix+offsets[i], stride);
 }
 
 __attribute__((noinline))
@@ -196,11 +202,13 @@ void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const u
 int nnedi_test_net_sse2(const float *weightsf, const int *dotp, float dc);
 int nnedi_test_net_x4_ssse3(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3);
 int nnedi_scale_net_sse2(const int16_t *weights, const uint8_t *pix, int stride);
+int nnedi_scale_nets_sse2(const int16_t *weights, const uint8_t *pix, int stride, uint8_t *dst, const uint16_t *offsets, int n);
 void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, int stride, int width);
 void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, int stride, int width);
 #define test_dotproduct nnedi_test_dotproduct_sse2
 #define test_dotproducts nnedi_test_dotproducts_sse2
 #define scale_net nnedi_scale_net_sse2
+#define scale_nets nnedi_scale_nets_sse2
 #define test_net_x4 nnedi_test_net_x4_ssse3
 #define merge_test_neighbors merge_test_neighbors_ssse3
 #define merge_test_runlength merge_test_runlength_sse2
@@ -403,11 +411,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         pix = src+(y-2)*sstride-3;
         uint8_t *dpix = dst+(y*2+1)*dstride;
         nretest = merge_test_runlength(retest, tested2, width);
-        for(int i=0; i<nretest; i++) {
-            int x = retest[i];
-            int v = scale_net(scale_weights.i, pix+x, sstride);
-            dpix[x] = av_clip_uint8(v);
-        }
+        scale_nets(scale_weights.i, pix, sstride, dpix, retest, nretest);
     }
     uint64_t t1 = read_time();
     printf("%d Mcycles\n", (int)((t1-t0)/1000000));
