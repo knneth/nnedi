@@ -611,6 +611,7 @@ cglobal scale_net_sse2, 4,6,16
 
 
 
+%if 0
 ; int test_net(const float *weightsf, const int *dotp, float dc)
 cglobal test_net_sse2, 2,2
 %define m_1   m14
@@ -667,16 +668,19 @@ cglobal test_net_sse2, 2,2
     comiss   m0, m1
     seta     al
     RET
+%endif
 
 
+
+%ifdef HAVE_16REGS
 
 %macro DOTP0 2
     pshufd   m8, %1, 0x39
     pshufd   m9, %1, 0x4e
     pshufd  m10, %1, 0x93
-    mova    m11, m8
-    mova    m12, m9
-    mova    m13, m10
+    movaps  m11, m8
+    movaps  m12, m9
+    movaps  m13, m10
     mulps    m8, [r0-0x40]
     mulps    m9, [r0-0x30]
     mulps   m10, [r0-0x20]
@@ -711,7 +715,6 @@ cglobal test_net_sse2, 2,2
 cglobal test_net_x4_ssse3, 2,2
 %define m_1   m14
 %define m_abs m15
-%define buf rsp-0x88
     add      r0, 0x80
     pshufd   m4, m0, 0
     pshufd   m5, m1, 0
@@ -783,12 +786,144 @@ cglobal test_net_x4_ssse3, 2,2
     shufps   m0, m2, 0xdd
     andps    m0, m_abs
     andps    m4, m_abs
-    mova     m2, [shuf_packdb]
+    movaps   m2, [shuf_packdb]
     psubd    m0, m4
     psrld    m0, 31
     pshufb   m0, m2 ; the only non-sse2 instruction
     movd    eax, m0
     RET
+
+%else ; X86_32
+
+%macro DOTP0 6 ; sum0, sum1, tmps
+    movaps   %2, %1
+    movaps   %3, %1
+    mulps    %2, [r0-0x50]
+    mulps    %3, [r0+0x00]
+    pshufd   %4, %1, 0x39
+    addps    %2, [r0-0x10]
+    addps    %3, [r0+0x80]
+    movaps   %5, [r0+0x10]
+    mulps    %5, %4
+    mulps    %4, [r0-0x40]
+    pshufd   %6, %1, 0x4e
+    addps    %2, %4
+    addps    %3, %5
+    movaps   %4, [r0+0x20]
+    mulps    %4, %6
+    mulps    %6, [r0-0x30]
+    pshufd   %1, %1, 0x93
+    addps    %3, %4
+    addps    %2, %6
+    movaps   %5, [r0-0x20]
+    mulps    %5, %1
+    mulps    %1, [r0+0x30]
+    addps    %2, %5
+    addps    %1, %3
+%endmacro
+
+%macro DOTP1 3 ; sum, in, tmp
+    pshufd   %3, %2, 0x39
+    mulps    %3, [r0+0x50]
+    addps    %1, %3
+    pshufd   %3, %2, 0x4e
+    mulps    %3, [r0+0x60]
+    addps    %1, %3
+    pshufd   %3, %2, 0x93
+    mulps    %3, [r0+0x70]
+    addps    %1, %3
+    mulps    %2, [r0+0x40]
+    addps    %1, %2
+%endmacro
+
+; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
+cglobal test_net_x4_ssse3, 2,2
+    sub     rsp, 0x70-gprsize
+    add      r0, 0x80
+    pshufd   m4, m0, 0
+    pshufd   m5, m1, 0
+    pshufd   m6, m2, 0
+    pshufd   m7, m3, 0
+    movaps   m0, [r0-0x70]
+    movaps   m1, [r0-0x60]
+    mulps    m4, m0
+    mulps    m5, m0
+    mulps    m6, m0
+    mulps    m7, m0
+    subps    m4, m1
+    subps    m5, m1
+    subps    m6, m1
+    subps    m7, m1
+    movaps   m3, [r0-0x80]
+    cvtdq2ps m0, [r1+0x00]
+    cvtdq2ps m1, [r1+0x10]
+    cvtdq2ps m2, [r1+0x20]
+    mulps    m0, m3
+    mulps    m1, m3
+    mulps    m2, m3
+    cvtdq2ps m3, [r1+0x30]
+    mulps    m3, [r0-0x80]
+    subps    m0, m4
+    subps    m1, m5
+    subps    m2, m6
+    subps    m3, m7
+%define m_1   m6
+%define m_abs m7
+    movaps   m_1,   [ps_1]
+    movaps   m_abs, [ps_abs]
+    SIGMOID  m0, m4
+    SIGMOID  m1, m4
+    SIGMOID  m2, m4
+    SIGMOID  m3, m4
+    movaps   [rsp+0x20], m2
+    movaps   [rsp+0x30], m3
+    DOTP0    m0, m4, m2, m3, m6, m7
+    DOTP0    m1, m5, m2, m3, m6, m7
+    movaps   m2, [rsp+0x20]
+    movaps   m3, [rsp+0x30]
+    movaps   [rsp+0x00], m0
+    movaps   [rsp+0x10], m1
+    movaps   [rsp+0x40], m4
+    movaps   [rsp+0x50], m5
+    DOTP0    m2, m6, m0, m1, m4, m5
+    DOTP0    m3, m7, m0, m1, m4, m5
+    movaps   m4, [rsp+0x40]
+    movaps   m5, [rsp+0x50]
+%define m_1   m1
+%define m_abs [ps_abs]
+    movaps   m_1, [ps_1]
+    SIGMOID  m4, m0
+    SIGMOID  m5, m0
+    SIGMOID  m6, m0
+    SIGMOID  m7, m0
+    movaps   m0, [rsp+0x00]
+    DOTP1    m0, m4, m1
+    movaps   m1, [rsp+0x10]
+    DOTP1    m1, m5, m4
+    DOTP1    m2, m6, m4
+    DOTP1    m3, m7, m4
+    ; FIXME duplicate code
+    movaps     m4, m0
+    punpcklqdq m0, m1 ; unpcklpd?
+    punpckhqdq m4, m1
+    maxps      m4, m0
+    movaps     m0, m2
+    punpcklqdq m2, m3
+    punpckhqdq m0, m3
+    maxps      m2, m0
+    movaps   m0, m4
+    shufps   m4, m2, 0x88
+    shufps   m0, m2, 0xdd
+    andps    m0, m_abs
+    andps    m4, m_abs
+    mova     m2, [shuf_packdb]
+    psubd    m0, m4
+    psrld    m0, 31
+    pshufb   m0, m2 ; the only non-sse2 instruction
+    movd    eax, m0
+    add     rsp, 0x70-gprsize
+    RET
+%endif
 
 
 
