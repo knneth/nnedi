@@ -204,6 +204,7 @@ static void transpose_c(uint8_t *dst, uint8_t *src, int width, int height, int d
 static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src);
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src);
 
+#ifdef ARCH_X86
 #include "nnedi_asm.c"
 void nnedi_test_dotproduct_sse2(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride);
 void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width);
@@ -214,6 +215,7 @@ extern void (*nnedi_scale_nets_tab_sse2[])(const int16_t *weights, const uint8_t
 void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, intptr_t stride, int width);
 void nnedi_bicubic_sse2(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
 void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
+#endif
 
 static struct {
     int initted;
@@ -247,9 +249,6 @@ void nnedi_config(int nns)
     dsp.nnsi = av_clip(nns, 0, 4);
     dsp.nns = 16<<dsp.nnsi;
 
-    munge_test_weights(dsp.test_weights_i, dsp.test_weights_i_transpose, dsp.test_weights_f, test_weights);
-    munge_scale_weights(dsp.scale_weights, (float*)(dsp.scale_weights+48*2*dsp.nns), scale_weights_8x6xN[dsp.nnsi]);
-
     dsp.test_dotproduct = test_dotproduct_c;
     dsp.test_dotproducts = test_dotproducts_c;
     dsp.scale_nets = scale_nets_tab_c[dsp.nnsi];
@@ -260,6 +259,7 @@ void nnedi_config(int nns)
     dsp.bicubic = bicubic_c;
     dsp.transpose = transpose_c;
 
+#ifdef ARCH_X86
     if(dsp.cpu) {
         dsp.test_dotproduct = nnedi_test_dotproduct_sse2;
         dsp.test_dotproducts = nnedi_test_dotproducts_sse2;
@@ -277,6 +277,12 @@ void nnedi_config(int nns)
         dsp.merge_test_neighbors = merge_test_neighbors_ssse3;
         dsp.bicubic = nnedi_bicubic_ssse3;
     }
+#else
+    dsp.cpu = 0;
+#endif
+
+    munge_test_weights(dsp.test_weights_i, dsp.test_weights_i_transpose, dsp.test_weights_f, test_weights);
+    munge_scale_weights(dsp.scale_weights, (float*)(dsp.scale_weights+48*2*dsp.nns), scale_weights_8x6xN[dsp.nnsi]);
 }
 
 static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
