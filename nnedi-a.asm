@@ -102,7 +102,6 @@ INIT_XMM
     pmaddwd m %+ %%i, m %+ %%j
     %if (%%n & 3) == 3
         pshufd  m %+ %%j, m %+ %%j, 0x39
-;       palignr m %+ %%j, m %+ %%j, 4
     %endif
 %endmacro
 
@@ -225,7 +224,7 @@ cglobal test_dotproduct_sse2, 4,5,16
     DOTP_ACC  21
     DOTP_ACC  22
     DOTP_ACC  23
-    HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above
+    HADDPI_X4 m4, m0, m1, m2, m3
     mova [r1], m4
     RET
 
@@ -255,7 +254,7 @@ cglobal test_dotproduct_sse2, 4,5,8
     DOTP_MUL2 23
     DOTP_ACC  22
     DOTP_ACC  23
-    HADDPI_X4 m4, m0, m1, m2, m3 ; FIXME partly interleave with the above
+    HADDPI_X4 m4, m0, m1, m2, m3
     mova [r1], m4
     ADD rsp, stack_pad
     RET
@@ -309,7 +308,7 @@ cglobal test_dotproduct_sse2, 4,5,8
 %endmacro
 
 %macro LOAD8x4_TRANPOSE 5
-    movq      %1, [r2] ; FIXME palignr?
+    movq      %1, [r2]
     movq      %2, [r2+r3]
     movq      %3, [r2+r3*2]
     movq      %4, [r2+r5]
@@ -634,12 +633,12 @@ cglobal scale_net%1_sse2
     ret
 
 .zero:
-    ; FIXME could return now
-    xorps    m0, m0
-    movss  [mean], m2
-    movss  [stddev], m0
-    movss  [invstddev], m0
-    jmp .unzero
+    movaps   m3, m2
+    movaps   m0, [ps_1]
+    xorps    m1, m1
+    xorps    m2, m2
+    ADD rsp, stack_pad
+    ret
 
 
 
