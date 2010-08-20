@@ -1,6 +1,6 @@
 #include "nnedi.h"
 
-ALIGNED_16(const float test_weights[252]) = {
+ALIGNED_16(const float nnedi_test_weights[252]) = {
     -0x1.912c80p-1,  0x1.ca1e40p-4, -0x1.2b7750p-6,  0x1.cb7c68p-2,
     -0x1.3ae404p-1, -0x1.6c6b48p-2, -0x1.a878d6p-2, -0x1.09ed74p-7,
     -0x1.9e25a0p-1, -0x1.cd560cp-1,  0x1.f0251ep-1,  0x1.f57664p-2,
@@ -66,7 +66,7 @@ ALIGNED_16(const float test_weights[252]) = {
      0x1.a2814cp-3,  0x1.7f4b80p-1,  0x1.f7d9e6p+0,  0x1.d642e2p-3,
 };
 
-ALIGNED_16(const float scale_weights_8x6x16[49*32]) = {
+ALIGNED_16(static const float scale_weights_8x6x16[49*32]) = {
      0x1.c3c812p+1,  0x1.b258e8p+1,  0x1.19cdb2p+2,  0x1.61f238p+2,
      0x1.41bc30p+2,  0x1.2f12f8p+2,  0x1.41569ep+2,  0x1.29745cp+2,
     -0x1.cd9d60p+2, -0x1.01f030p+3, -0x1.94a514p+2, -0x1.22dd5ap+2,
@@ -461,7 +461,7 @@ ALIGNED_16(const float scale_weights_8x6x16[49*32]) = {
     -0x1.c1ff70p-5, -0x1.79a926p-3,  0x1.e82e62p-2, -0x1.72a8f0p+1,
 };
 
-ALIGNED_16(const float scale_weights_8x6x32[49*64]) = {
+ALIGNED_16(static const float scale_weights_8x6x32[49*64]) = {
      0x1.087b56p+1,  0x1.3f9beap+0,  0x1.9bbdd0p+0,  0x1.b9d130p+0,
      0x1.a3d68ap+0,  0x1.74fa24p+0,  0x1.1e5a04p+0,  0x1.667cd0p+0,
      0x1.28b404p-1,  0x1.2bdc3ap-2,  0x1.d0c906p-3,  0x1.47823ap-5,
@@ -1248,7 +1248,7 @@ ALIGNED_16(const float scale_weights_8x6x32[49*64]) = {
      0x1.54617ap-1, -0x1.ac5548p-1, -0x1.bb489ap+0, -0x1.fd70dap-2,
 };
 
-ALIGNED_16(const float scale_weights_8x6x64[49*128]) = {
+ALIGNED_16(static const float scale_weights_8x6x64[49*128]) = {
      0x1.137ef6p+0, -0x1.46bf98p-3,  0x1.a19e5cp-4,  0x1.2ba812p+0,
      0x1.f50782p-2,  0x1.a15da4p-3,  0x1.81c33ap-2,  0x1.14117cp-6,
      0x1.24aaa0p-2, -0x1.b00188p+0, -0x1.a7ce1ap+0,  0x1.460f0cp-1,
@@ -2819,7 +2819,7 @@ ALIGNED_16(const float scale_weights_8x6x64[49*128]) = {
      0x1.fd05b4p-2, -0x1.679292p-5, -0x1.67872cp-4, -0x1.57151ep+0,
 };
 
-ALIGNED_16(const float scale_weights_8x6x128[49*256]) = {
+ALIGNED_16(static const float scale_weights_8x6x128[49*256]) = {
      0x1.643086p+0,  0x1.1f8e20p-4, -0x1.e1c8a0p-5,  0x1.0c0c6cp+0,
      0x1.a8a57cp-1,  0x1.f583a4p-3,  0x1.48298cp+0,  0x1.00c450p+1,
      0x1.6171f6p+0, -0x1.304eccp-1, -0x1.b72938p-3,  0x1.f9990ap+0,
@@ -5958,7 +5958,7 @@ ALIGNED_16(const float scale_weights_8x6x128[49*256]) = {
      0x1.c36a06p-1, -0x1.b49cd4p-6,  0x1.c89244p-1,  0x1.344942p-8,
 };
 
-ALIGNED_16(const float scale_weights_8x6x256[49*512]) = {
+ALIGNED_16(static const float scale_weights_8x6x256[49*512]) = {
      0x1.e3d11ap-1,  0x1.b353eep-1,  0x1.53cc60p-1,  0x1.b41f7cp-1,
      0x1.b7ff44p-1,  0x1.b31512p-1,  0x1.c3029ap-1,  0x1.f6e04ap-1,
      0x1.48a6ecp-2,  0x1.43a954p-3,  0x1.a63becp-4,  0x1.809b8cp-2,
@@ -12234,7 +12234,7 @@ ALIGNED_16(const float scale_weights_8x6x256[49*512]) = {
 };
 
 
-const float *const scale_weights_8x6xN[] = {
+const float *const nnedi_scale_weights_8x6xN[] = {
     scale_weights_8x6x16,
     scale_weights_8x6x32,
     scale_weights_8x6x64,

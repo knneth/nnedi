@@ -84,7 +84,7 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
             *dst++ = src[y*stride+x]*16 - (sum+1)/3;
 }
 
-void test_dotproduct_c(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
+static void test_dotproduct_c(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
 {
     int16_t in[48];
     cast_pixels_test(in, pix, stride);
@@ -94,7 +94,7 @@ void test_dotproduct_c(const int16_t *weightsi, int *dst, const uint8_t *pix, in
     dst[3] = dotproduct(weightsi+48*3, in, 48);
 }
 
-void test_dotproducts_c(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width)
+static void test_dotproducts_c(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width)
 {
     int16_t in[48];
     for(int x=5; x<width; x++) {
@@ -280,8 +280,8 @@ void nnedi_config(int nns)
     dsp.cpu = 0;
 #endif
 
-    munge_test_weights(dsp.test_weights_i, dsp.test_weights_i_transpose, dsp.test_weights_f, test_weights);
-    munge_scale_weights(dsp.scale_weights, (float*)(dsp.scale_weights+48*2*dsp.nns), scale_weights_8x6xN[dsp.nnsi]);
+    munge_test_weights(dsp.test_weights_i, dsp.test_weights_i_transpose, dsp.test_weights_f, nnedi_test_weights);
+    munge_scale_weights(dsp.scale_weights, (float*)(dsp.scale_weights+48*2*dsp.nns), nnedi_scale_weights_8x6xN[dsp.nnsi]);
 }
 
 static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
