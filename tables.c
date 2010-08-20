@@ -1,3 +1,7 @@
+/**
+ * tables copied from NNEDI3-0.9.1
+ */
+
 #include "nnedi.h"
 
 ALIGNED_16(const float nnedi_test_weights[252]) = {
