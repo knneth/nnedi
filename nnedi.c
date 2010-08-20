@@ -371,7 +371,8 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     ALIGNED_16(struct { int16_t i[48*2*NNS]; float f[4*NNS]; } scale_weights);
     munge_test_weights(test_weights_i, test_weights_i_transpose, test_weights_f, test_weights);
     munge_scale_weights(scale_weights.i, scale_weights.f,
-        NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : scale_weights_8x6x64);
+        NNS==16 ? scale_weights_8x6x16 : NNS==32 ? scale_weights_8x6x32 : NNS==64 ? scale_weights_8x6x64 :
+        NNS==128 ? scale_weights_8x6x128 : NNS==256 ? scale_weights_8x6x256 : 0);
 
     for(int y=-2; y<3; y++)
         pad_row(src, width, height, sstride, y);
