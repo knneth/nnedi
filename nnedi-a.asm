@@ -116,7 +116,7 @@ INIT_XMM
     CAT_UNDEF tmp, %%n
 %endmacro
 
-%assign offset 128 ; FIXME could be 0 (possibly without any loss)
+%assign offset 0
 %ifdef ARCH_X86_64
 cglobal scale_dotproduct_sse2
     DOTP_LOAD 0
@@ -139,7 +139,7 @@ cglobal scale_dotproduct_sse2
     DOTP_ACC  93
     DOTP_ACC  94
     mova  [r1+16], m1
-    add        r0, 48*2*16+128-offset
+    add        r0, 48*2*16-offset
     DOTP_ACC  95
     mova  [r1+32], m2
     mova  [r1+48], m3
@@ -159,7 +159,7 @@ cglobal scale_dotproduct_sse2
     mova  [r1], m0
     DOTP_MUL  95
     mova  [r1+16], m1
-    add        r0, 48*2*16+128-offset
+    add        r0, 48*2*16-offset
     DOTP_ACC  95
     mova  [r1+32], m2
     mova  [r1+48], m3
@@ -570,7 +570,6 @@ cglobal scale_net%1_sse2
 %endrep
 
     ; neural net
-    add      r0, 128
     lea      r1, [buf]
 %rep NNS/8
     call scale_dotproduct_sse2
@@ -609,16 +608,16 @@ cglobal scale_net%1_sse2
     xorps    m1, m1
 %assign i 0
 %rep NNS/4
-    movaps   m4, [r0+i*8-128]
-    movaps   m5, [r0+i*8-128+NNS*8]
+    movaps   m4, [r0+i*8]
+    movaps   m5, [r0+i*8+NNS*8]
     cvtdq2ps m2, [buf+i*4]
     cvtdq2ps m3, [buf+i*4+NNS*4]
     mulps    m4, m_invstddev
     mulps    m5, m_invstddev
     mulps    m2, m4
     mulps    m3, m5 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
-    addps    m2, [r0+i*8+16-128]
-    addps    m3, [r0+i*8+16-128+NNS*8]
+    addps    m2, [r0+i*8+16]
+    addps    m3, [r0+i*8+16+NNS*8]
     SIGMOID  m3, m4
     EXP2     m2, m4, m5
     mulps    m3, m2
@@ -626,7 +625,7 @@ cglobal scale_net%1_sse2
     addps    m1, m3
 %assign i i+4
 %endrep
-    sub      r0, 48*4*NNS+128
+    sub      r0, 48*4*NNS
     movss    m2, [stddev]
     movss    m3, [mean]
     ADD rsp, stack_pad
