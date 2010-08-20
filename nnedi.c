@@ -399,7 +399,7 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
         memcpy(dstf+2*j+4,  src+j, 4*sizeof(float));
     }
     for(int j=0; j<2*dsp.nns; j++)
-        dstf[j] *= M_LOG2E;
+        dstf[j] *= (float)M_LOG2E;
 
     if(dsp.cpu) {
         // transpose weights into the order that asm wants

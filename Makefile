@@ -1,4 +1,4 @@
-CFLAGS=-O2 -g -Wall -std=gnu99 -msse2 -mfpmath=sse -fomit-frame-pointer -DARCH_X86
+CFLAGS=-O2 -g -Wall -std=gnu99 -msse -mfpmath=sse -fomit-frame-pointer -DARCH_X86
 CXXFLAGS=-O2 -g -Wall
 
 upscale: upscale.o nnedi.o nnedi-a.o tables.o

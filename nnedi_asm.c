@@ -7,7 +7,8 @@ static inline int merge_test_neighbors_asm(uint8_t *dst, uint16_t *retest, uint8
     uint16_t *masks = retest+n2-n32;
 #define MERGE(load_row1offset) {\
         intptr_t x = -n2;\
-        asm("1: \n"\
+        asm volatile(\
+            "1: \n"\
             "movdqa   (%3,%1), %%xmm0 \n"\
             load_row1offset\
             "movdqa   (%4,%1), %%xmm2 \n"\
@@ -29,7 +30,7 @@ static inline int merge_test_neighbors_asm(uint8_t *dst, uint16_t *retest, uint8
             "jl 1b \n"\
             :"+&r"(masks), "+&r"(x)\
             :"r"(dst+n2*2), "r"(row1+n2), "r"(row0+n2), "r"(row2+n2)\
-            :"eax", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "memory"\
+            :"eax", "memory"\
         );\
         masks -= n32;\
     }
@@ -81,7 +82,8 @@ static int merge_test_runlength_sse2(uint16_t *retest, uint8_t *src, int n)
     memset(src+n, 1, (-n)&31);
     for(int x=0; x<n; x+=32) {
         uint32_t mask, m2;
-        asm("movdqa %2, %%xmm0 \n"
+        asm volatile(
+            "movdqa %2, %%xmm0 \n"
             "movdqa %3, %%xmm1 \n"
             "psllw  $7, %%xmm0 \n"
             "psllw  $7, %%xmm1 \n"
