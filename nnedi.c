@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <libavutil/avutil.h>
-#include <bench.h>
 #include "nnedi.h"
 
 #define MAX_NNS 256
@@ -429,7 +428,6 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
 
     for(int y=-2; y<3; y++)
         pad_row(src, width, height, sstride, y);
-    uint64_t t0 = read_time();
     for(int y=0; y<3; y++)
         block_sums(NULL, sum_w12, src+(y-1)*sstride-5, width, 12, y+1, tstride);
     for(int y=0, testy=0; y<height; y++) {
@@ -467,8 +465,6 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         nretest = dsp.merge_test_runlength(retest, tested2, width);
         dsp.scale_nets(dsp.scale_weights, pix, sstride, dpix, retest, nretest);
     }
-    uint64_t t1 = read_time();
-    printf("%d Mcycles\n", (int)((t1-t0)/1000000));
     free(sum_w12);
     free(sum_12x4[0]);
     free(sum_12x4[1]);
