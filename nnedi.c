@@ -305,21 +305,24 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
         src[y*stride+width-1+x] = src[y*stride+width-x];
 }
 
-// FIXME cap scaling factors so that intermediate sums don't overflow; or allow 7fff if that works.
 // FIXME try multiple scaling factors and mean removals to minimize total quantization error.
 // or try forcing everything to the same scaling factor to eliminate a few multiplies from scale_net.
 static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src)
 {
     for(int j=0; j<4; j++, src+=48) {
-        float max = 0;
+        float min = src[0], max = src[0];
+        for(int i=0; i<48; i++) {
+            min = fminf(min, src[i]);
+            max = fmaxf(max, src[i]);
+        }
         int sum = 0;
+        float bias = (max+min)/2;
+        float range = (max-min)/2;
+        float scale = 0x7fff/range;
         for(int i=0; i<48; i++)
-            max = fmaxf(max, fabsf(src[i]));
-        float scale = 0x3fff/max;
-        for(int i=0; i<48; i++)
-            sum += dsti[48*j+i] = dsti_transpose[48*j+i/12+i%12*4] = roundf(src[i]*scale);
-        dstf[j] = max/(0x3fff*127.5f);
-        dstf[j+4] = sum*dstf[j]/48;
+            sum += dsti[48*j+i] = dsti_transpose[48*j+i/12+i%12*4] = roundf((src[i]-bias)*scale);
+        dstf[j] = range/(0x7fff*127.5f);
+        dstf[j+4] = (sum+bias)*dstf[j]/48;
     }
     memcpy(dstf+8, src, 60*sizeof(float));
 
@@ -374,12 +377,17 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     float scales[2*dsp.nns];
     for(int j=0; j<2*dsp.nns; j++, src+=48) {
         float max = 0;
-        for(int i=0; i<48; i++)
+        float sum_pos = 0, sum_neg = 0;
+        for(int i=0; i<48; i++) {
             max = fmaxf(max, fabsf(src[i]));
-        float scale = 0x3fff/max;
+            if(src[i]>0) sum_pos += src[i];
+            else         sum_neg -= src[i];
+        }
+        // each coef must fit in int16, and the sum over a block of 48 int13 inputs must fit in int32.
+        float scale = fminf(0x7fff/max, 0x7fff0/fmaxf(sum_pos,sum_neg));
         for(int i=0; i<48; i++)
             dsti[48*j+i] = roundf(src[i]*scale);
-        scales[j] = max/(0x3fff*16);
+        scales[j] = 1.f/(scale*16);
     }
     for(int j=0; j<2*dsp.nns; j+=4) {
         memcpy(dstf+2*j, scales+j, 4*sizeof(float));
