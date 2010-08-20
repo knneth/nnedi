@@ -1,5 +1,4 @@
 %include "x86inc.asm"
-%include "nnedi-a.h"
 
 SECTION_RODATA
 ps_exp_bias: times 4 dd 12582912.0 ; 3<<22
@@ -470,9 +469,28 @@ cglobal test_dotproducts_sse2, 5,7,8
     paddd      %3, %5
 %endmacro
 
+%macro SCALE_NET_TAIL 1
+    HADDPS   m4, m0
+    HADDPS   m5, m1
+    mulss    m2, [ps_5]
+    rcpss    m0, m4
+    mulss    m5, m2
+    mulss    m0, m5
+    addss    m0, m3
+    cvtss2si %1, m0
+    test     %1, ~255
+    jz %%.noclip
+    not      %1
+    sar      %1, 31
+    shr      %1, 24
+%%.noclip:
+%endmacro
 
+
+%macro SCALE_NET 1 ; nns
 ; int scale_net(struct { int16_t i[48*2*NNS]; float f[4*NNS]; } *weights, const uint8_t *pix, intptr_t stride)
-cglobal scale_net_sse2
+%assign NNS 16<<%1
+cglobal scale_net%1_sse2
     %assign stack_pad NNS*8+16+((-gprsize)&15)
 %ifdef ARCH_X86_64
     %define buf rsp
@@ -623,25 +641,8 @@ cglobal scale_net_sse2
 
 
 
-%macro SCALE_NET_TAIL 1
-    HADDPS   m4, m0
-    HADDPS   m5, m1
-    mulss    m2, [ps_5]
-    rcpss    m0, m4
-    mulss    m5, m2
-    mulss    m0, m5
-    addss    m0, m3
-    cvtss2si %1, m0
-    test     %1, ~255
-    jz %%.noclip
-    not      %1
-    sar      %1, 31
-    shr      %1, 24
-%%.noclip:
-%endmacro
-
 ; void scale_nets(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n)
-cglobal scale_nets_sse2, 6,7,16
+cglobal scale_nets%1_sse2, 6,7,16
 %ifdef ARCH_X86_64
     PUSH    r12
     PUSH    r13
@@ -666,7 +667,7 @@ cglobal scale_nets_sse2, 6,7,16
     movzx    r1, word [r4+6]
     add      r1, r6
 %endif
-    call scale_net_sse2
+    call scale_net%1_sse2
     movaps [rsp+0x20], m0
     movaps [rsp+0x50], m1
     movss  [rsp+0x6c], m2
@@ -677,7 +678,7 @@ cglobal scale_nets_sse2, 6,7,16
     movzx    r1, word [r4+4]
     add      r1, r6
 %endif
-    call scale_net_sse2
+    call scale_net%1_sse2
     movaps [rsp+0x10], m0
     movaps [rsp+0x40], m1
     movss  [rsp+0x68], m2
@@ -688,7 +689,7 @@ cglobal scale_nets_sse2, 6,7,16
     movzx    r1, word [r4+2]
     add      r1, r6
 %endif
-    call scale_net_sse2
+    call scale_net%1_sse2
     movaps [rsp+0x00], m0
     movaps [rsp+0x30], m1
     movss  [rsp+0x64], m2
@@ -699,7 +700,7 @@ cglobal scale_nets_sse2, 6,7,16
     movzx    r1, word [r4]
     add      r1, r6
 %endif
-    call scale_net_sse2
+    call scale_net%1_sse2
     SWAP 4, 0
     movaps   m5, [rsp+0x00]
     movaps   m6, [rsp+0x10]
@@ -759,13 +760,13 @@ cglobal scale_nets_sse2, 6,7,16
 %ifdef ARCH_X86_64
     movzx   r11, word [r4]
     lea      r1, [r6+r11]
-    call scale_net_sse2
+    call scale_net%1_sse2
     SCALE_NET_TAIL r1d
     mov      [r10+r11], r1b
 %else
     movzx    r1, word [r4]
     add      r1, r1m
-    call scale_net_sse2
+    call scale_net%1_sse2
     SCALE_NET_TAIL r1d
     movzx    r3, word [r4]
     add      r3, r3m
@@ -782,6 +783,25 @@ cglobal scale_nets_sse2, 6,7,16
     POP     r12
 %endif
     RET
+%endmacro ; SCALE_NET
+
+SCALE_NET 0
+SCALE_NET 1
+SCALE_NET 2
+SCALE_NET 3
+SCALE_NET 4
+
+%ifdef ARCH_X86_64
+    %define pointer dq
+%else
+    %define pointer dd
+%endif
+cglobal scale_nets_tab_sse2
+    pointer scale_nets0_sse2
+    pointer scale_nets1_sse2
+    pointer scale_nets2_sse2
+    pointer scale_nets3_sse2
+    pointer scale_nets4_sse2
 
 
 

@@ -12232,3 +12232,12 @@ ALIGNED_16(const float scale_weights_8x6x256[49*512]) = {
     -0x1.719110p-4,  0x1.3e9b66p-2, -0x1.d29c8cp-2,  0x1.40b3cep-3,
     -0x1.9e4542p-2, -0x1.035220p+0, -0x1.10ef60p-2,  0x1.ca2a76p-7,
 };
+
+
+const float *const scale_weights_8x6xN[] = {
+    scale_weights_8x6x16,
+    scale_weights_8x6x32,
+    scale_weights_8x6x64,
+    scale_weights_8x6x128,
+    scale_weights_8x6x256,
+};

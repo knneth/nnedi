@@ -10,8 +10,4 @@ upscale: upscale.o nnedi.o nnedi-a.o tables.o
 	strip -x $@
 
 nnedi.o: nnedi_dsp.c
-
-nnedi-a.o: x86inc.asm nnedi-a.h
-
-nnedi-a.h: nnedi.c
-	grep '#define NNS' nnedi.c | sed -e 's/#/%/' > nnedi-a.h
+nnedi-a.o: x86inc.asm
