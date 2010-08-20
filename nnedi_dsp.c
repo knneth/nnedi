@@ -88,11 +88,6 @@ static int merge_test_runlength_sse2(uint16_t *retest, uint8_t *src, int n)
 
 static void transpose8x8_sse2(uint8_t *dst, uint8_t *src, intptr_t dstride, intptr_t sstride)
 {
-#if 0
-    for(int x=0; x<8; x++)
-        for(int y=0; y<8; y++)
-            dst[x*dstride+y] = src[y*sstride+x];
-#else
     asm volatile(
         "movq   (%1),      %%xmm0 \n"
         "movq   (%1,%4),   %%xmm1 \n"
@@ -139,22 +134,10 @@ static void transpose8x8_sse2(uint8_t *dst, uint8_t *src, intptr_t dstride, intp
         :"r"(dstride), "r"(dstride*3),
          "r"(sstride), "r"(sstride*3)
     );
-#endif
 }
 
 static void transpose_sse2(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
-#if 0
-    for(int x=0; x<width-7; x+=8)
-        for(int y=0; y<height-7; y+=8)
-            transpose8x8_sse2(dst+x*dstride+y, src+y*sstride+x, dstride, sstride);
-    for(int x=width&~7; x<width; x++)
-        for(int y=0; y<(height&~7); y++)
-            dst[x*dstride+y] = src[y*sstride+x];
-    for(int x=0; x<width; x++)
-        for(int y=height&~7; y<height; y++)
-            dst[x*dstride+y] = src[y*sstride+x];
-#else
     for(int y=0; y<height-31; y+=32)
         for(int x=0; x<width-7; x+=8) {
             transpose8x8_sse2(dst+x*dstride+y+0, src+(y+0)*sstride+x, dstride, sstride);
@@ -173,5 +156,4 @@ static void transpose_sse2(uint8_t *dst, uint8_t *src, int width, int height, in
         for(int x=0; x<width; x++)
             for(int y=height&~7; y<height; y++)
                 dst[x*dstride+y] = src[y*sstride+x];
-#endif
 }
