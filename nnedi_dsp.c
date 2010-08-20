@@ -60,6 +60,7 @@ static int merge_test_neighbors_ssse3(uint8_t *dst, uint16_t *retest, uint8_t *r
 static int merge_test_runlength_sse2(uint16_t *retest, uint8_t *src, int n)
 {
     uint16_t *pretest = retest;
+    memset(src+n, 1, (-n)&31);
     for(int x=0; x<n; x+=32) {
         uint32_t mask, m2;
         asm("movdqa %2, %%xmm0 \n"
@@ -82,8 +83,6 @@ static int merge_test_runlength_sse2(uint16_t *retest, uint8_t *src, int n)
             mask >>= 1;
         }
     }
-    while(pretest > retest && pretest[-1] >= n)
-        pretest--;
     return pretest - retest;
 }
 
