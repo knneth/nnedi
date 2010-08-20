@@ -60,6 +60,8 @@ static inline int merge_test_neighbors_asm(uint8_t *dst, uint16_t *retest, uint8
             mask >>= 1;
         }
     }
+    while(pretest > retest && pretest[-1] >= n)
+        pretest--;
     return pretest - retest;
 }
 

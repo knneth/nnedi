@@ -166,7 +166,6 @@ static int merge_test_neighbors_c(uint8_t *dst, uint16_t *retest, uint8_t *row0,
     for(int x=0; x<n2; x++) {
         dst[2*x] = row1[x];
         dst[2*x+1] = row1[x];
-        // FIXME check that this is ok for odd width
         int a = row0[x], b = row1[x], c = row2[x], d = row1offset[x];
         if((a^b)|(b^c)|(c^d))
             *pretest++ = 2*x+parity;
