@@ -10,6 +10,8 @@ ps_abs:      times 4 dd 0x7fffffff
 ps_5:        times 4 dd 5.0
 pb_38_m6:    times 8 db 38,-6
 pw_32:       times 8 dw 32
+pw_38:       times 8 dw 38
+pw_m6:       times 8 dw -6
 shuf_packdb  db 0,4,8,12,0,0,0,0,0,0,0,0,0,0,0,0
 ss_48        dd 48.0
 ss_1_3:      dd 0.3333333333
@@ -1126,7 +1128,37 @@ TEST_NET ssse3
 
 
 
-%macro BICUBIC_LOOP 1
+%macro BICUBIC_LOOP_SSE2 0
+    mova      m4, [pw_m6]
+    mova      m5, [pw_38]
+    mova      m6, [pw_32]
+    pxor      m7, m7
+align 16
+%%.loop:
+    movq      m0, [r1+r3]
+    movq      m1, [r4+r3]
+    movq      m3, [r6+r3]
+    movq      m2, [r5+r3]
+    punpcklbw m0, m7
+    punpcklbw m1, m7
+    punpcklbw m3, m7
+    punpcklbw m2, m7
+    paddw     m0, m3
+    paddw     m1, m2
+    pmullw    m0, m4
+    pmullw    m1, m5
+    add       r3, 8
+    paddw     m0, m6
+    paddw     m0, m1
+    psraw     m0, 6
+    packuswb  m0, m0
+    movq [r0+r3], m0
+    jl %%.loop
+%endmacro
+
+%macro BICUBIC_LOOP_SSSE3 1
+    mova      m4, [pb_38_m6]
+    mova      m5, [pw_32]
 align 16
 %%.loop:
     mova      m0, [r4+r3]
@@ -1154,23 +1186,31 @@ align 16
 %endmacro
 
 ; void bicubic(uint8_t *dst, uint8_t *src, intptr_t stride, int width)
+cglobal bicubic_sse2, 4,7,8
+    add       r1, r3
+    lea       r4, [r1+r2]
+    lea       r5, [r1+r2*2]
+    lea       r6, [r4+r2*2]
+    lea       r0, [r0+r3-8]
+    neg       r3
+    BICUBIC_LOOP_SSE2
+    REP_RET
+
 cglobal bicubic_ssse3, 4,7,6
     add       r1, r3
     lea       r4, [r1+r2]
     lea       r5, [r1+r2*2]
     lea       r6, [r4+r2*2]
-    mova      m4, [pb_38_m6]
-    mova      m5, [pw_32]
     test      r0, 15
     jnz .unaligned
     lea       r0, [r0+r3-16]
     neg       r3
-    BICUBIC_LOOP mova
+    BICUBIC_LOOP_SSSE3 mova
     REP_RET
 .unaligned:
     lea       r0, [r0+r3-16]
     neg       r3
-    BICUBIC_LOOP movu
+    BICUBIC_LOOP_SSSE3 movu
     REP_RET
 
 

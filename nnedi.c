@@ -213,6 +213,7 @@ int nnedi_test_net_x4_sse2(const float *weightsf, int (*dotp)[4], float dc0, flo
 int nnedi_test_net_x4_ssse3(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3);
 extern void (*nnedi_scale_nets_tab_sse2[])(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n);
 void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, intptr_t stride, int width);
+void nnedi_bicubic_sse2(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
 void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
 
 static struct {
@@ -267,6 +268,7 @@ void nnedi_config(int nns)
         dsp.test_net_x4 = nnedi_test_net_x4_sse2;
         dsp.merge_test_runlength = merge_test_runlength_sse2;
         dsp.block_sums_core = nnedi_block_sums_core_sse2;
+        dsp.bicubic = nnedi_bicubic_sse2;
         dsp.transpose = transpose_sse2;
     }
 
