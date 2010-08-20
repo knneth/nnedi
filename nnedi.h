@@ -1,6 +1,5 @@
 #include <inttypes.h>
 
-#define ALIGN(x) (((x)+15)&~15)
 #define ALIGNED_16(x) __attribute__((aligned(16))) x
 
 extern const float nnedi_test_weights[];

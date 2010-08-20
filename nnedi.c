@@ -1,8 +1,8 @@
-#include <dlfcn.h>
 #include <float.h>
+#include <inttypes.h>
+#include <math.h>
 #include <malloc.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <string.h>
 #include <libavutil/avutil.h>
 #include "nnedi.h"
 
@@ -416,7 +416,7 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
 static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int twidth = width+11;
-    int tstride = ALIGN(twidth);
+    int tstride = FFALIGN(twidth, 16);
     uint16_t *sum_w12 = memalign(16, 4*tstride*sizeof(uint16_t));
     float *sum_12x4[2] = { memalign(16, tstride*sizeof(float)), memalign(16, tstride*sizeof(float)) };
     uint8_t *tested = memalign(16, 3*tstride+16); // FIXME only needs stride=align(tstride/2+2)
@@ -478,14 +478,14 @@ void nnedi_upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dst
 {
     int h1 = width;
     int w1 = height;
-    int s1 = ALIGN(w1+11)*2;
+    int s1 = FFALIGN(w1+11, 16)*2;
     uint8_t *b1 = memalign(16, (h1+5)*s1+16);
     uint8_t *p1 = b1+s1*2+16;
     dsp.transpose(p1, src, width, height, s1, sstride);
     upscale_v(p1, p1, w1, h1, s1/2, s1);
     int h2 = w1;
     int w2 = h1*2;
-    int s2 = ALIGN(w2+11);
+    int s2 = FFALIGN(w2+11, 16);
     uint8_t *b2 = memalign(16, (h2+5)*s2+16);
     uint8_t *p2 = b2+s2*2+16;
     dsp.transpose(p2, p1, h2, w2, s2, s1/2);
