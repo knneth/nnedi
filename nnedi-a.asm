@@ -866,6 +866,34 @@ cglobal test_net_sse2, 2,2,10
 
 
 
+%macro TEST_NET_TAIL 1 ; cpu
+    movaps   m4, m0
+    unpcklpd m0, m1
+    unpckhpd m4, m1
+    maxps    m4, m0
+    movaps   m0, m2
+    unpcklpd m2, m3
+    unpckhpd m0, m3
+    maxps    m2, m0
+    movaps   m0, m4
+    shufps   m4, m2, 0x88
+    shufps   m0, m2, 0xdd
+    andps    m0, m_abs
+    andps    m4, m_abs
+%ifidn %1, ssse3
+    movaps   m2, [shuf_packdb]
+%endif
+    psubd    m0, m4
+    psrld    m0, 31
+%ifidn %1, ssse3
+    pshufb   m0, m2
+%else
+    packssdw m0, m0
+    packuswb m0, m0
+%endif
+    movd    eax, m0
+%endmacro
+
 %ifdef ARCH_X86_64
 
 %macro DOTP0 2
@@ -905,8 +933,9 @@ cglobal test_net_sse2, 2,2,10
     addps    %1, m10
 %endmacro
 
+%macro TEST_NET 1 ; cpu
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
-cglobal test_net_x4_ssse3, 2,2,16
+cglobal test_net_x4_%1, 2,2,16
 %define m_1   m14
 %define m_abs m15
     add      r0, 0x80
@@ -967,25 +996,9 @@ cglobal test_net_x4_ssse3, 2,2,16
     DOTP1    m1, m5
     DOTP1    m2, m6
     DOTP1    m3, m7
-    movaps     m4, m0
-    punpcklqdq m0, m1 ; unpcklpd?
-    punpckhqdq m4, m1
-    maxps      m4, m0
-    movaps     m0, m2
-    punpcklqdq m2, m3
-    punpckhqdq m0, m3
-    maxps      m2, m0
-    movaps   m0, m4
-    shufps   m4, m2, 0x88
-    shufps   m0, m2, 0xdd
-    andps    m0, m_abs
-    andps    m4, m_abs
-    movaps   m2, [shuf_packdb]
-    psubd    m0, m4
-    psrld    m0, 31
-    pshufb   m0, m2 ; the only non-sse2 instruction
-    movd    eax, m0
+    TEST_NET_TAIL %1
     RET
+%endmacro ; TEST_NET
 
 %else ; X86_32
 
@@ -1030,8 +1043,9 @@ cglobal test_net_x4_ssse3, 2,2,16
     addps    %1, %2
 %endmacro
 
+%macro TEST_NET 1 ; cpu
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
-cglobal test_net_x4_ssse3, 2,2,8
+cglobal test_net_x4_%1, 2,2,8
     movd     m4, r2m
     movd     m5, r3m
     movd     m6, r4m
@@ -1101,28 +1115,14 @@ cglobal test_net_x4_ssse3, 2,2,8
     DOTP1    m1, m5, m4
     DOTP1    m2, m6, m4
     DOTP1    m3, m7, m4
-    ; FIXME duplicate code
-    movaps     m4, m0
-    punpcklqdq m0, m1 ; unpcklpd?
-    punpckhqdq m4, m1
-    maxps      m4, m0
-    movaps     m0, m2
-    punpcklqdq m2, m3
-    punpckhqdq m0, m3
-    maxps      m2, m0
-    movaps   m0, m4
-    shufps   m4, m2, 0x88
-    shufps   m0, m2, 0xdd
-    andps    m0, m_abs
-    andps    m4, m_abs
-    mova     m2, [shuf_packdb]
-    psubd    m0, m4
-    psrld    m0, 31
-    pshufb   m0, m2 ; the only non-sse2 instruction
-    movd    eax, m0
+    TEST_NET_TAIL %1
     ADD     rsp, stack_pad
     RET
-%endif
+%endmacro ; TEST_NET
+%endif ; X86_32
+
+TEST_NET sse2
+TEST_NET ssse3
 
 
 

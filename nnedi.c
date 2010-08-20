@@ -209,6 +209,7 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src);
 void nnedi_test_dotproduct_sse2(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride);
 void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width);
 int nnedi_test_net_sse2(const float *weightsf, const int *dotp, float dc);
+int nnedi_test_net_x4_sse2(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3);
 int nnedi_test_net_x4_ssse3(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3);
 extern void (*nnedi_scale_nets_tab_sse2[])(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n);
 void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, intptr_t stride, int width);
@@ -263,12 +264,16 @@ void nnedi_config(int nns)
         dsp.test_dotproduct = nnedi_test_dotproduct_sse2;
         dsp.test_dotproducts = nnedi_test_dotproducts_sse2;
         dsp.scale_nets = nnedi_scale_nets_tab_sse2[dsp.nnsi];
-        dsp.test_net_x4 = nnedi_test_net_x4_ssse3;
-        dsp.merge_test_neighbors = merge_test_neighbors_ssse3;
+        dsp.test_net_x4 = nnedi_test_net_x4_sse2;
         dsp.merge_test_runlength = merge_test_runlength_sse2;
         dsp.block_sums_core = nnedi_block_sums_core_sse2;
-        dsp.bicubic = nnedi_bicubic_ssse3;
         dsp.transpose = transpose_sse2;
+    }
+
+    if(dsp.cpu) {
+        dsp.test_net_x4 = nnedi_test_net_x4_ssse3;
+        dsp.merge_test_neighbors = merge_test_neighbors_ssse3;
+        dsp.bicubic = nnedi_bicubic_ssse3;
     }
 }
 
