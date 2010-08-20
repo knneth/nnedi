@@ -204,7 +204,7 @@ static void transpose_c(uint8_t *dst, uint8_t *src, int width, int height, int d
 static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src);
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src);
 
-#include "nnedi_dsp.c"
+#include "nnedi_asm.c"
 void nnedi_test_dotproduct_sse2(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride);
 void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width);
 int nnedi_test_net_sse2(const float *weightsf, const int *dotp, float dc);

@@ -1,6 +1,5 @@
 CFLAGS=-O2 -g -Wall -std=gnu99 -msse2 -mfpmath=sse -fomit-frame-pointer
 CXXFLAGS=-O2 -g -Wall
-LDFLAGS=-L/usr/x11r6/lib
 
 upscale: upscale.o nnedi.o nnedi-a.o tables.o
 	$(CXX) -o $@ $+ $(LDFLAGS) -lpng -lz
@@ -9,5 +8,9 @@ upscale: upscale.o nnedi.o nnedi-a.o tables.o
 	yasm -f elf64 -DARCH_X86_64 -o $@ $<
 	strip -x $@
 
-nnedi.o: nnedi_dsp.c
+nnedi.o: nnedi_asm.c
 nnedi-a.o: x86inc.asm
+
+.PHONY: clean
+clean:
+	rm -f upscale *.o
