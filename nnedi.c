@@ -266,6 +266,7 @@ void nnedi_config(int nns)
         dsp.test_dotproducts = nnedi_test_dotproducts_sse2;
         dsp.scale_nets = nnedi_scale_nets_tab_sse2[dsp.nnsi];
         dsp.test_net_x4 = nnedi_test_net_x4_sse2;
+        dsp.merge_test_neighbors = merge_test_neighbors_sse2;
         dsp.merge_test_runlength = merge_test_runlength_sse2;
         dsp.block_sums_core = nnedi_block_sums_core_sse2;
         dsp.bicubic = nnedi_bicubic_sse2;

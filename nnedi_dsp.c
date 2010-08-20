@@ -1,4 +1,4 @@
-static int merge_test_neighbors_ssse3(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
+static inline int merge_test_neighbors_asm(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity, int ssse3)
 {
     uint16_t *pretest = retest;
     int n2 = (n+1)>>1;
@@ -33,12 +33,18 @@ static int merge_test_neighbors_ssse3(uint8_t *dst, uint16_t *retest, uint8_t *r
         );\
         masks -= n32;\
     }
-    if(parity) {
-        MERGE("movdqa 16(%3,%1), %%xmm1 \n"
-              "palignr $1, %%xmm0, %%xmm1 \n");
+    if(ssse3) {
+        if(parity)
+            MERGE("movdqa 16(%3,%1), %%xmm1 \n"
+                  "palignr $1, %%xmm0, %%xmm1 \n")
+        else
+            MERGE("movdqa %%xmm0, %%xmm1 \n"
+                  "palignr $15, -16(%3,%1), %%xmm1 \n")
     } else {
-        MERGE("movdqa %%xmm0, %%xmm1 \n"
-              "palignr $15, -16(%3,%1), %%xmm1 \n");
+        if(parity)
+            MERGE("movdqu 1(%3,%1), %%xmm1 \n")
+        else
+            MERGE("movdqu -1(%3,%1), %%xmm1 \n")
     }
 #undef MERGE
     masks[n32] = 0xffff;
@@ -55,6 +61,16 @@ static int merge_test_neighbors_ssse3(uint8_t *dst, uint16_t *retest, uint8_t *r
         }
     }
     return pretest - retest;
+}
+
+static int merge_test_neighbors_sse2(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
+{
+    return merge_test_neighbors_asm(dst, retest, row0, row1, row2, n, parity, 0);
+}
+
+static int merge_test_neighbors_ssse3(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
+{
+    return merge_test_neighbors_asm(dst, retest, row0, row1, row2, n, parity, 1);
 }
 
 static int merge_test_runlength_sse2(uint16_t *retest, uint8_t *src, int n)
