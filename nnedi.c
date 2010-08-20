@@ -297,16 +297,16 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
         int32_t c[24*4];
         float d[16], e[32];
         for(int i=0; i<48*4; i++)
-            b[i] = dsti[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
+            b[i] = dsti[48*((i>>3)&3) + 8*(i>>5) + (i&7)];
         for(int i=0; i<24*4; i++)
-            c[i] = ((int32_t*)dsti_transpose)[(i&3)*24 + ((i%24)&~3) + ((i+i/24)&3)];
+            c[i] = ((int32_t*)dsti_transpose)[24*(i&3) + ((i%24)&~3) + ((i+i/24)&3)];
         for(int i=40; i<48; i++)
             FFSWAP(float, dstf[i], dstf[i+8]);
         FFSWAP(float, dstf[65], dstf[66]);
         for(int i=0; i<16; i++)
-            d[i] = dstf[12 + (i&3)*4 + ((i+(i>>2))&3)];
+            d[i] = dstf[12 + 4*(i&3) + ((i+(i>>2))&3)];
         for(int i=0; i<32; i++)
-            e[i] = dstf[32 + ((i>>2)&4) + (i&3)*8 + ((i+(i>>2))&3)];
+            e[i] = dstf[32 + ((i>>2)&4) + 8*(i&3) + ((i+(i>>2))&3)];
         memcpy(dsti, b, sizeof(b));
         memcpy(dsti_transpose, c, sizeof(c));
         memcpy(dstf+12, d, sizeof(d));
@@ -340,25 +340,24 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     // cast input weights to int, scaling them by the largest factor that fits.
     // record that factor so they can be converted back after dotproduct.
     float scales[2*NNS];
-    for(int j=0; j<2*NNS; j++, src+=48, dsti+=48) {
+    for(int j=0; j<2*NNS; j++, src+=48) {
         float max = 0;
         for(int i=0; i<48; i++)
             max = fmaxf(max, fabsf(src[i]));
         float scale = 0x3fff/max;
         for(int i=0; i<48; i++)
-            dsti[i] = roundf(src[i]*scale);
+            dsti[48*j+i] = roundf(src[i]*scale);
         scales[j] = max/(0x3fff*16);
     }
     for(int j=0; j<2*NNS; j+=4) {
-        memcpy(dstf+j*2, scales+j, 4*sizeof(float));
-        memcpy(dstf+j*2+4, src+j, 4*sizeof(float));
+        memcpy(dstf+2*j, scales+j, 4*sizeof(float));
+        memcpy(dstf+2*j+4,  src+j, 4*sizeof(float));
     }
     for(int j=0; j<2*NNS; j++)
         dstf[j] *= M_LOG2E;
 
     if(dsp.cpu) {
         // transpose weights into the order that asm wants
-        dsti -= 48*2*NNS;
         for(int j=0; j<2*NNS; j+=16) {
             int32_t *a = (int32_t*)(dsti+48*j);
             int32_t b[24*16];
