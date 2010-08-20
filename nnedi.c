@@ -8,9 +8,7 @@
 #include "nnedi.h"
 
 #define NNS 16
-#define USE_ASM
 
-#ifndef USE_ASM
 static inline int dotproduct(const int16_t *weights, const int16_t *inputs, int n)
 {
     int s = 0;
@@ -87,7 +85,7 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
             *dst++ = src[y*stride+x]*16 - (sum+1)/3;
 }
 
-void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
+void test_dotproduct_c(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
 {
     int16_t in[48];
     cast_pixels_test(in, pix, stride);
@@ -97,7 +95,7 @@ void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, intp
     dst[3] = dotproduct(weightsi+48*3, in, 48);
 }
 
-void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width)
+void test_dotproducts_c(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width)
 {
     int16_t in[48];
     for(int x=5; x<width; x++) {
@@ -107,8 +105,7 @@ void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix
     }
 }
 
-__attribute__((noinline))
-static int scale_net(const int16_t *weights, const uint8_t *pix, intptr_t stride)
+static int scale_net_c(const int16_t *weights, const uint8_t *pix, intptr_t stride)
 {
     const float *weightsf = (const float*)(weights+48*2*NNS);
     int16_t in[48];
@@ -124,14 +121,13 @@ static int scale_net(const int16_t *weights, const uint8_t *pix, intptr_t stride
     return av_clip_uint8(weighted_average(tmp, tmp+NNS, NNS)*5*stddev+mean+.5f);
 }
 
-static void scale_nets(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n)
+static void scale_nets_c(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n)
 {
     for(int i=0; i<n; i++)
-        dst[offsets[i]] = scale_net(weights, pix+offsets[i], stride);
+        dst[offsets[i]] = scale_net_c(weights, pix+offsets[i], stride);
 }
 
-__attribute__((noinline))
-static int test_net(const float *weightsf, const int *dotp, float dc)
+static int test_net_c(const float *weightsf, const int *dotp, float dc)
 {
     float tmp[12];
     for(int i=0; i<4; i++)
@@ -143,15 +139,15 @@ static int test_net(const float *weightsf, const int *dotp, float dc)
     return fabsf(fmaxf(tmp[8],tmp[9])) > fabsf(fmaxf(tmp[10],tmp[11]));
 }
 
-int test_net_x4(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
+static int test_net_x4_c(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
 {
-    return test_net(weightsf, dotp[0], dc0)
-         | test_net(weightsf, dotp[1], dc1)<<8
-         | test_net(weightsf, dotp[2], dc2)<<16
-         | test_net(weightsf, dotp[3], dc3)<<24;
+    return test_net_c(weightsf, dotp[0], dc0)
+         | test_net_c(weightsf, dotp[1], dc1)<<8
+         | test_net_c(weightsf, dotp[2], dc2)<<16
+         | test_net_c(weightsf, dotp[3], dc3)<<24;
 }
 
-static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
+static int merge_test_neighbors_c(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity)
 {
     uint16_t *pretest = retest;
     int n2 = (n+1)>>1;
@@ -167,7 +163,7 @@ static int merge_test_neighbors(uint8_t *dst, uint16_t *retest, uint8_t *row0, u
     return pretest - retest;
 }
 
-static int merge_test_runlength(uint16_t *retest, uint8_t *src, int n)
+static int merge_test_runlength_c(uint16_t *retest, uint8_t *src, int n)
 {
     uint16_t *pretest = retest;
     for(int x=0; x<n; x++)
@@ -176,26 +172,25 @@ static int merge_test_runlength(uint16_t *retest, uint8_t *src, int n)
     return pretest - retest;
 }
 
-static void block_sums_core(float *dst, uint16_t *src, intptr_t stride, int width)
+static void block_sums_core_c(float *dst, uint16_t *src, intptr_t stride, int width)
 {
     for(int x=0; x<width; x++)
         dst[x] = src[x] + src[x+stride] + src[x+stride*2] + src[x+stride*3];
 }
 
-static void bicubic(uint8_t *dst, uint8_t *src, intptr_t stride, int n)
+static void bicubic_c(uint8_t *dst, uint8_t *src, intptr_t stride, int n)
 {
     for(int x=0; x<n; x++)
         dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
 }
 
-static void transpose(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+static void transpose_c(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     for(int x=0; x<width; x++)
         for(int y=0; y<height; y++)
             dst[x*dstride+y] = src[y*sstride+x];
 }
 
-#else // USE_ASM
 #include "nnedi_dsp.c"
 void nnedi_test_dotproduct_sse2(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride);
 void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width);
@@ -205,17 +200,52 @@ int nnedi_scale_net_sse2(const int16_t *weights, const uint8_t *pix, intptr_t st
 void nnedi_scale_nets_sse2(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n);
 void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, intptr_t stride, int width);
 void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
-#define test_dotproduct nnedi_test_dotproduct_sse2
-#define test_dotproducts nnedi_test_dotproducts_sse2
-#define scale_net nnedi_scale_net_sse2
-#define scale_nets nnedi_scale_nets_sse2
-#define test_net_x4 nnedi_test_net_x4_ssse3
-#define merge_test_neighbors merge_test_neighbors_ssse3
-#define merge_test_runlength merge_test_runlength_sse2
-#define block_sums_core nnedi_block_sums_core_sse2
-#define bicubic nnedi_bicubic_ssse3
-#define transpose transpose_sse2
-#endif
+
+static struct {
+    int initted;
+    int cpu;
+    void (*test_dotproduct)(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride);
+    void (*test_dotproducts)(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width);
+    int  (*test_net_x4)(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3);
+    void (*scale_nets)(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n);
+    int  (*merge_test_neighbors)(uint8_t *dst, uint16_t *retest, uint8_t *row0, uint8_t *row1, uint8_t *row2, int n, int parity);
+    int  (*merge_test_runlength)(uint16_t *retest, uint8_t *src, int n);
+    void (*block_sums_core)(float *dst, uint16_t *src, intptr_t stride, int width);
+    void (*bicubic)(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
+    void (*transpose)(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride);
+} dsp;
+
+static void init_dsp(void)
+{
+    if(dsp.initted)
+        return;
+    dsp.initted = 1;
+    dsp.cpu = 1;
+    if(getenv("noasm"))
+        dsp.cpu = 0;
+
+    dsp.test_dotproduct = test_dotproduct_c;
+    dsp.test_dotproducts = test_dotproducts_c;
+    dsp.scale_nets = scale_nets_c;
+    dsp.test_net_x4 = test_net_x4_c;
+    dsp.merge_test_neighbors = merge_test_neighbors_c;
+    dsp.merge_test_runlength = merge_test_runlength_c;
+    dsp.block_sums_core = block_sums_core_c;
+    dsp.bicubic = bicubic_c;
+    dsp.transpose = transpose_c;
+
+    if(dsp.cpu) {
+        dsp.test_dotproduct = nnedi_test_dotproduct_sse2;
+        dsp.test_dotproducts = nnedi_test_dotproducts_sse2;
+        dsp.scale_nets = nnedi_scale_nets_sse2;
+        dsp.test_net_x4 = nnedi_test_net_x4_ssse3;
+        dsp.merge_test_neighbors = merge_test_neighbors_ssse3;
+        dsp.merge_test_runlength = merge_test_runlength_sse2;
+        dsp.block_sums_core = nnedi_block_sums_core_sse2;
+        dsp.bicubic = nnedi_bicubic_ssse3;
+        dsp.transpose = transpose_sse2;
+    }
+}
 
 static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int width, int y, intptr_t stride)
 {
@@ -228,7 +258,7 @@ static void block_sums(float *blocks, uint16_t *dst, uint8_t *src, int n, int wi
         dst[i] = sum += src[i+width-1] - src[i-1];
     dst -= y*stride;
     if(blocks)
-        block_sums_core(blocks, dst, stride, n);
+        dsp.block_sums_core(blocks, dst, stride, n);
 }
 
 static void pad_row(uint8_t *src, int width, int height, int stride, int y)
@@ -241,20 +271,6 @@ static void pad_row(uint8_t *src, int width, int height, int stride, int y)
         src[y*stride-x] = src[y*stride-1+x];
     for(int x=1; x<=6; x++)
         src[y*stride+width-1+x] = src[y*stride+width-x];
-}
-
-static struct {
-    int initted;
-} dsp;
-
-static void init_dsp(void)
-{
-    if(dsp.initted)
-        return;
-    dsp.initted = 1;
-    uint32_t cpu = 1;
-    if(getenv("noasm"))
-        cpu = 0;
 }
 
 // FIXME cap scaling factors so that intermediate sums don't overflow; or allow 7fff if that works.
@@ -275,29 +291,29 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
     }
     memcpy(dstf+8, src, 60*sizeof(float));
 
-#ifdef USE_ASM
-    // transpose weights into the order that asm wants
-    int16_t b[48*4];
-    int32_t c[24*4];
-    float d[16], e[32];
-    for(int i=0; i<48*4; i++)
-        b[i] = dsti[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
-    for(int i=0; i<24*4; i++)
-        c[i] = ((int32_t*)dsti_transpose)[(i&3)*24 + ((i%24)&~3) + ((i+i/24)&3)];
-    for(int i=40; i<48; i++)
-        FFSWAP(float, dstf[i], dstf[i+8]);
-    FFSWAP(float, dstf[65], dstf[66]);
-    for(int i=0; i<16; i++)
-        d[i] = dstf[12 + (i&3)*4 + ((i+(i>>2))&3)];
-    for(int i=0; i<32; i++)
-        e[i] = dstf[32 + ((i>>2)&4) + (i&3)*8 + ((i+(i>>2))&3)];
-    memcpy(dsti, b, sizeof(b));
-    memcpy(dsti_transpose, c, sizeof(c));
-    memcpy(dstf+12, d, sizeof(d));
-    memcpy(dstf+32, e, sizeof(e));
-#else
-    memcpy(dsti_transpose, dsti, 48*4*sizeof(*dsti));
-#endif
+    if(dsp.cpu) {
+        // transpose weights into the order that asm wants
+        int16_t b[48*4];
+        int32_t c[24*4];
+        float d[16], e[32];
+        for(int i=0; i<48*4; i++)
+            b[i] = dsti[((i>>3)&3)*48 + (i>>5)*8 + (i&7)];
+        for(int i=0; i<24*4; i++)
+            c[i] = ((int32_t*)dsti_transpose)[(i&3)*24 + ((i%24)&~3) + ((i+i/24)&3)];
+        for(int i=40; i<48; i++)
+            FFSWAP(float, dstf[i], dstf[i+8]);
+        FFSWAP(float, dstf[65], dstf[66]);
+        for(int i=0; i<16; i++)
+            d[i] = dstf[12 + (i&3)*4 + ((i+(i>>2))&3)];
+        for(int i=0; i<32; i++)
+            e[i] = dstf[32 + ((i>>2)&4) + (i&3)*8 + ((i+(i>>2))&3)];
+        memcpy(dsti, b, sizeof(b));
+        memcpy(dsti_transpose, c, sizeof(c));
+        memcpy(dstf+12, d, sizeof(d));
+        memcpy(dstf+32, e, sizeof(e));
+    } else {
+        memcpy(dsti_transpose, dsti, 48*4*sizeof(*dsti));
+    }
 }
 
 static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
@@ -340,17 +356,17 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     for(int j=0; j<2*NNS; j++)
         dstf[j] *= M_LOG2E;
 
-#ifdef USE_ASM
-    // transpose weights into the order that asm wants
-    dsti -= 48*2*NNS;
-    for(int j=0; j<2*NNS; j+=16) {
-        int32_t *a = (int32_t*)(dsti+48*j);
-        int32_t b[24*16];
-        for(int i=0; i<24*16; i++)
-            b[i] = a[96*((i>>2)&3) + 24*(i&3) + 4*(i>>6) + ((i+(i>>4))&3)];
-        memcpy(a, b, sizeof(b));
+    if(dsp.cpu) {
+        // transpose weights into the order that asm wants
+        dsti -= 48*2*NNS;
+        for(int j=0; j<2*NNS; j+=16) {
+            int32_t *a = (int32_t*)(dsti+48*j);
+            int32_t b[24*16];
+            for(int i=0; i<24*16; i++)
+                b[i] = a[96*((i>>2)&3) + 24*(i&3) + 4*(i>>6) + ((i+(i>>4))&3)];
+            memcpy(a, b, sizeof(b));
+        }
     }
-#endif
 }
 
 static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
@@ -385,22 +401,22 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             block_sums(sum_12x4[testy&1], sum_w12, src+(testy+2)*sstride-5, width, 12, testy&3, tstride);
             uint8_t *pix = src+(testy-1)*sstride-5+!(testy&1);
             int end = (width+(testy&1))>>1;
-            test_dotproducts(test_weights_i_transpose, test_dotp, pix, sstride, end+5);
+            dsp.test_dotproducts(test_weights_i_transpose, test_dotp, pix, sstride, end+5);
             uint8_t *pt = tested+(testy%3)*tstride;
             float *dc = sum_12x4[testy&1]+!(testy&1);
             for(int x=0; x<end; x+=4)
-                *(uint32_t*)(pt+x) = test_net_x4(test_weights_f, test_dotp+x+5, dc[x*2], dc[x*2+2], dc[x*2+4], dc[x*2+6]);
+                *(uint32_t*)(pt+x) = dsp.test_net_x4(test_weights_f, test_dotp+x+5, dc[x*2], dc[x*2+2], dc[x*2+4], dc[x*2+6]);
             pt[end] = 0;
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
-        int nretest = merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
+        int nretest = dsp.merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
         uint8_t *pix = src+(y-1)*sstride-5;
         for(int i=0; i<nretest; i++)
-            test_dotproduct(test_weights_i, test_dotp[i], pix+retest[i], sstride);
+            dsp.test_dotproduct(test_weights_i, test_dotp[i], pix+retest[i], sstride);
         float *dc = sum_12x4[y&1];
         retest[nretest] = retest[nretest+1] = retest[nretest+2] = width+1;
         for(int i=0; i<nretest; i+=4) {
-            uint32_t v = test_net_x4(test_weights_f, test_dotp+i, dc[retest[i+0]], dc[retest[i+1]], dc[retest[i+2]], dc[retest[i+3]]);
+            uint32_t v = dsp.test_net_x4(test_weights_f, test_dotp+i, dc[retest[i+0]], dc[retest[i+1]], dc[retest[i+2]], dc[retest[i+3]]);
             tested2[retest[i+0]] = v;
             tested2[retest[i+1]] = v>>8;
             tested2[retest[i+2]] = v>>16;
@@ -408,11 +424,11 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         }
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
-        bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
+        dsp.bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
         pix = src+(y-2)*sstride-3;
         uint8_t *dpix = dst+(y*2+1)*dstride;
-        nretest = merge_test_runlength(retest, tested2, width);
-        scale_nets(scale_weights.i, pix, sstride, dpix, retest, nretest);
+        nretest = dsp.merge_test_runlength(retest, tested2, width);
+        dsp.scale_nets(scale_weights.i, pix, sstride, dpix, retest, nretest);
     }
     uint64_t t1 = read_time();
     printf("%d Mcycles\n", (int)((t1-t0)/1000000));
@@ -433,14 +449,14 @@ void upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dstride, 
     int s1 = ALIGN(w1+11)*2;
     uint8_t *b1 = memalign(16, (h1+5)*s1+16);
     uint8_t *p1 = b1+s1*2+16;
-    transpose(p1, src, width, height, s1, sstride);
+    dsp.transpose(p1, src, width, height, s1, sstride);
     upscale_v(p1, p1, w1, h1, s1/2, s1);
     int h2 = w1;
     int w2 = h1*2;
     int s2 = ALIGN(w2+11);
     uint8_t *b2 = memalign(16, (h2+5)*s2+16);
     uint8_t *p2 = b2+s2*2+16;
-    transpose(p2, p1, h2, w2, s2, s1/2);
+    dsp.transpose(p2, p1, h2, w2, s2, s1/2);
     upscale_v(dst, p2, w2, h2, dstride, s2);
     free(b1);
     free(b2);
