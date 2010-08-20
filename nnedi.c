@@ -87,7 +87,7 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
             *dst++ = src[y*stride+x]*16 - (sum+1)/3;
 }
 
-void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride)
+void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
 {
     int16_t in[48];
     cast_pixels_test(in, pix, stride);
@@ -97,7 +97,7 @@ void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, int 
     dst[3] = dotproduct(weightsi+48*3, in, 48);
 }
 
-void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width)
+void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width)
 {
     int16_t in[48];
     for(int x=5; x<width; x++) {
@@ -108,7 +108,7 @@ void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix
 }
 
 __attribute__((noinline))
-static int scale_net(const int16_t *weights, const uint8_t *pix, int stride)
+static int scale_net(const int16_t *weights, const uint8_t *pix, intptr_t stride)
 {
     const float *weightsf = (const float*)(weights+48*2*NNS);
     int16_t in[48];
@@ -124,7 +124,7 @@ static int scale_net(const int16_t *weights, const uint8_t *pix, int stride)
     return av_clip_uint8(weighted_average(tmp, tmp+NNS, NNS)*5*stddev+mean+.5f);
 }
 
-static int scale_nets(const int16_t *weights, const uint8_t *pix, int stride, uint8_t *dst, const uint16_t *offsets, int n)
+static void scale_nets(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n)
 {
     for(int i=0; i<n; i++)
         dst[offsets[i]] = scale_net(weights, pix+offsets[i], stride);
@@ -176,13 +176,13 @@ static int merge_test_runlength(uint16_t *retest, uint8_t *src, int n)
     return pretest - retest;
 }
 
-static void block_sums_core(float *dst, uint16_t *src, int stride, int width)
+static void block_sums_core(float *dst, uint16_t *src, intptr_t stride, int width)
 {
     for(int x=0; x<width; x++)
         dst[x] = src[x] + src[x+stride] + src[x+stride*2] + src[x+stride*3];
 }
 
-static void bicubic(uint8_t *dst, uint8_t *src, int stride, int n)
+static void bicubic(uint8_t *dst, uint8_t *src, intptr_t stride, int n)
 {
     for(int x=0; x<n; x++)
         dst[x] = av_clip_uint8(((src[x+stride]+src[x+stride*2])*38-(src[x]+src[x+stride*3])*6+32)>>6);
@@ -197,14 +197,14 @@ static void transpose(uint8_t *dst, uint8_t *src, int width, int height, int dst
 
 #else // USE_ASM
 #include "nnedi_dsp.c"
-void nnedi_test_dotproduct_sse2(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride);
-void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width);
+void nnedi_test_dotproduct_sse2(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride);
+void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width);
 int nnedi_test_net_sse2(const float *weightsf, const int *dotp, float dc);
 int nnedi_test_net_x4_ssse3(const float *weightsf, int (*dotp)[4], float dc0, float dc1, float dc2, float dc3);
-int nnedi_scale_net_sse2(const int16_t *weights, const uint8_t *pix, int stride);
-int nnedi_scale_nets_sse2(const int16_t *weights, const uint8_t *pix, int stride, uint8_t *dst, const uint16_t *offsets, int n);
-void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, int stride, int width);
-void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, int stride, int width);
+int nnedi_scale_net_sse2(const int16_t *weights, const uint8_t *pix, intptr_t stride);
+void nnedi_scale_nets_sse2(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n);
+void nnedi_block_sums_core_sse2(float *dst, uint16_t *src, intptr_t stride, int width);
+void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
 #define test_dotproduct nnedi_test_dotproduct_sse2
 #define test_dotproducts nnedi_test_dotproducts_sse2
 #define scale_net nnedi_scale_net_sse2

@@ -200,7 +200,7 @@ cglobal scale_dotproduct_sse2
     punpcklbw %6, %7
 %endmacro
 
-; void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, int stride)
+; void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
 %assign offset 0
 %ifdef ARCH_X86_64
 cglobal test_dotproduct_sse2, 4,5,16
@@ -326,7 +326,7 @@ cglobal test_dotproduct_sse2, 4,5,8
     punpckhbw %4, %5
 %endmacro
 
-; void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, int stride, int width)
+; void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width)
 %assign offset0 128
 %assign offset1 384
 %ifdef ARCH_X86_64
@@ -471,7 +471,7 @@ cglobal test_dotproducts_sse2, 5,7,8
 %endmacro
 
 
-; int scale_net(struct { int16_t i[48*2*NNS]; float f[4*NNS]; } *weights, const uint8_t *pix, int stride)
+; int scale_net(struct { int16_t i[48*2*NNS]; float f[4*NNS]; } *weights, const uint8_t *pix, intptr_t stride)
 cglobal scale_net_sse2
     %assign stack_pad NNS*8+16+((-gprsize)&15)
 %ifdef ARCH_X86_64
@@ -640,7 +640,7 @@ cglobal scale_net_sse2
 %%.noclip:
 %endmacro
 
-; int scale_nets(const int16_t *weights, const uint8_t *pix, int stride, uint8_t *dst, const uint16_t *offsets, int n)
+; void scale_nets(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n)
 cglobal scale_nets_sse2, 6,7,16
 %ifdef ARCH_X86_64
     PUSH    r12
@@ -1133,7 +1133,7 @@ align 16
     jl %%.loop
 %endmacro
 
-; void bicubic(uint8_t *dst, uint8_t *src, int stride, int width)
+; void bicubic(uint8_t *dst, uint8_t *src, intptr_t stride, int width)
 cglobal bicubic_ssse3, 4,7,6
     add       r1, r3
     lea       r4, [r1+r2]
@@ -1155,7 +1155,7 @@ cglobal bicubic_ssse3, 4,7,6
 
 
 
-; void block_sums_core(float *dst, uint16_t *src, int stride, int width)
+; void block_sums_core(float *dst, uint16_t *src, intptr_t stride, int width)
 cglobal block_sums_core_sse2, 4,7,3
     pxor      m2, m2
     shl       r2, 1
