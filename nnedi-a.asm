@@ -571,23 +571,6 @@ cglobal scale_net%1_sse2
     movss  [stddev], m1
 .unzero:
 
-    ; remove mean
-    pshuflw    m3, m3, 0
-    punpcklqdq m3, m3
-%assign i 10
-%rep 6
-%ifdef ARCH_X86_64
-    psllw    m %+ i, 4
-    psubw    m %+ i, m3
-%else
-    mova     m0, [spill+(i-10)*16]
-    psllw    m0, 4
-    psubw    m0, m3
-    mova     [spill+(i-10)*16], m0
-%endif
-%assign i i+1
-%endrep
-
     ; neural net
     lea      r1, [buf]
 %rep NNS/8
@@ -825,52 +808,49 @@ cglobal scale_nets_tab_sse2
 
 
 %if 0
-; int test_net(const float *weightsf, const int *dotp, float dc)
+; int test_net(const float *weightsf, const int *dotp)
 cglobal test_net_sse2, 2,2,10
 %define m_1   m8
 %define m_abs m9
     add      r0, 0x80
-    pshufd   m1, m0, 0 ; dc
-    mulps    m1, [r0-0x70]
-    cvtdq2ps m0, [r1] ; dotp
-    subps    m1, [r0-0x60]
+    cvtdq2ps m0, [r1]
     mulps    m0, [r0-0x80]
-    subps    m0, m1
+    addps    m0, [r0-0x70]
     movaps   m_1,   [ps_1]
     movaps   m_abs, [ps_abs]
-    movaps   m1, [r0-0x50]
+    movaps   m1, [r0-0x60]
     SIGMOID  m0, m4
     pshufd   m5, m0, 0x39
-    movaps   m2, [r0-0x40]
+    movaps   m2, [r0-0x50]
     pshufd   m6, m0, 0x4e
     mulps    m1, m0
-    movaps   m3, [r0-0x30]
+    movaps   m3, [r0-0x40]
     pshufd   m7, m0, 0x93
     mulps    m2, m5
-    movaps   m4, [r0-0x20]
+    movaps   m4, [r0-0x30]
     mulps    m3, m6
-    addps    m1, [r0-0x10]
+    addps    m1, [r0-0x20]
     mulps    m4, m7
     addps    m2, m3
-    mulps    m0, [r0+0x00]
+    mulps    m0, [r0-0x10]
     addps    m1, m4
-    mulps    m5, [r0+0x10]
+    mulps    m5, [r0+0x00]
     addps    m1, m2
-    mulps    m6, [r0+0x20]
+    mulps    m6, [r0+0x10]
     SIGMOID  m1, m8
-    mulps    m7, [r0+0x30]
+    mulps    m7, [r0+0x20]
     pshufd   m2, m1, 0x39
-    addps    m0, [r0+0x80]
+    addps    m0, [r0+0x70]
     addps    m0, m5
     pshufd   m3, m1, 0x4e
     addps    m6, m7
     pshufd   m4, m1, 0x93
-    mulps    m1, [r0+0x40]
+    mulps    m1, [r0+0x30]
     addps    m0, m6
-    mulps    m2, [r0+0x50]
+    mulps    m2, [r0+0x40]
     addps    m0, m1
-    mulps    m3, [r0+0x60]
-    mulps    m4, [r0+0x70]
+    mulps    m3, [r0+0x50]
+    mulps    m4, [r0+0x60]
     addps    m2, m3
     addps    m0, m4
     addps    m0, m2
@@ -913,6 +893,30 @@ cglobal test_net_sse2, 2,2,10
     movd    eax, m0
 %endmacro
 
+%macro TEST_NET_X4_HEAD 0
+    add      r0, 0x80
+    movaps   m4, [r0-0x80]
+    movaps   m5, [r0-0x70]
+    cvtdq2ps m0, [r1+0x00]
+    cvtdq2ps m1, [r1+0x10]
+    cvtdq2ps m2, [r1+0x20]
+    cvtdq2ps m3, [r1+0x30]
+    mulps    m0, m4
+    mulps    m1, m4
+    mulps    m2, m4
+    mulps    m3, m4
+    movaps   m_1,   [ps_1]
+    movaps   m_abs, [ps_abs]
+    addps    m0, m5
+    addps    m1, m5
+    addps    m2, m5
+    addps    m3, m5
+    SIGMOID  m0, m4
+    SIGMOID  m1, m4
+    SIGMOID  m2, m4
+    SIGMOID  m3, m4
+%endmacro
+
 %ifdef ARCH_X86_64
 
 %macro DOTP0 2
@@ -922,17 +926,17 @@ cglobal test_net_sse2, 2,2,10
     movaps  m11, m8
     movaps  m12, m9
     movaps  m13, m10
-    mulps    m8, [r0-0x40]
-    mulps    m9, [r0-0x30]
-    mulps   m10, [r0-0x20]
-    mulps    %1, [r0+0x00]
-    mulps   m11, [r0+0x10]
-    mulps   m12, [r0+0x20]
-    mulps   m13, [r0+0x30]
+    mulps    m8, [r0-0x50]
+    mulps    m9, [r0-0x40]
+    mulps   m10, [r0-0x30]
+    mulps    %1, [r0-0x10]
+    mulps   m11, [r0+0x00]
+    mulps   m12, [r0+0x10]
+    mulps   m13, [r0+0x20]
     addps    %2, m8
     addps    %2, m9
     addps    %2, m10
-    addps    %1, [r0+0x80]
+    addps    %1, [r0+0x70]
     addps    %1, m11
     addps    %1, m12
     addps    %1, m13
@@ -942,10 +946,10 @@ cglobal test_net_sse2, 2,2,10
     pshufd   m8, %2, 0x39
     pshufd   m9, %2, 0x4e
     pshufd   m10, %2, 0x93
-    mulps    %2, [r0+0x40]
-    mulps    m8, [r0+0x50]
-    mulps    m9, [r0+0x60]
-    mulps    m10, [r0+0x70]
+    mulps    %2, [r0+0x30]
+    mulps    m8, [r0+0x40]
+    mulps    m9, [r0+0x50]
+    mulps    m10, [r0+0x60]
     addps    %1, %2
     addps    %1, m8
     addps    %1, m9
@@ -953,60 +957,27 @@ cglobal test_net_sse2, 2,2,10
 %endmacro
 
 %macro TEST_NET 1 ; cpu
-; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
+; int test_net_x4(const float *weightsf, const int (*dotp)[4])
 cglobal test_net_x4_%1, 2,2,16
 %define m_1   m14
 %define m_abs m15
-    add      r0, 0x80
-    pshufd   m4, m0, 0
-    pshufd   m5, m1, 0
-    pshufd   m6, m2, 0
-    pshufd   m7, m3, 0
-    movaps   m8, [r0-0x60]
-    movaps   m9, [r0-0x70]
-    movaps  m10, [r0-0x80]
-    cvtdq2ps m0, [r1+0x00]
-    cvtdq2ps m1, [r1+0x10]
-    cvtdq2ps m2, [r1+0x20]
-    cvtdq2ps m3, [r1+0x30]
-    mulps    m4, m9
-    mulps    m5, m9
-    mulps    m6, m9
-    mulps    m7, m9
-    subps    m4, m8
-    subps    m5, m8
-    subps    m6, m8
-    subps    m7, m8
-    mulps    m0, m10
-    mulps    m1, m10
-    mulps    m2, m10
-    mulps    m3, m10
-    movaps   m_1,   [ps_1]
-    movaps   m_abs, [ps_abs]
-    subps    m0, m4
-    subps    m1, m5
-    subps    m2, m6
-    subps    m3, m7
-    SIGMOID  m0, m4
-    SIGMOID  m1, m4
-    SIGMOID  m2, m4
-    SIGMOID  m3, m4
+    TEST_NET_X4_HEAD
     movaps   m4, m0
     movaps   m5, m1
-    mulps    m4, [r0-0x50]
-    mulps    m5, [r0-0x50]
-    addps    m4, [r0-0x10]
-    addps    m5, [r0-0x10]
+    mulps    m4, [r0-0x60]
+    mulps    m5, [r0-0x60]
+    addps    m4, [r0-0x20]
+    addps    m5, [r0-0x20]
     DOTP0    m0, m4
     DOTP0    m1, m5
     SIGMOID  m4, m8
     SIGMOID  m5, m8
     movaps   m6, m2
     movaps   m7, m3
-    mulps    m6, [r0-0x50]
-    mulps    m7, [r0-0x50]
-    addps    m6, [r0-0x10]
-    addps    m7, [r0-0x10]
+    mulps    m6, [r0-0x60]
+    mulps    m7, [r0-0x60]
+    addps    m6, [r0-0x20]
+    addps    m7, [r0-0x20]
     DOTP0    m2, m6
     DOTP0    m3, m7
     SIGMOID  m6, m8
@@ -1024,89 +995,52 @@ cglobal test_net_x4_%1, 2,2,16
 %macro DOTP0 6 ; sum0, sum1, tmps
     movaps   %2, %1
     movaps   %3, %1
-    mulps    %2, [r0-0x50]
-    mulps    %3, [r0+0x00]
+    mulps    %2, [r0-0x60]
+    mulps    %3, [r0-0x10]
     pshufd   %4, %1, 0x39
-    addps    %2, [r0-0x10]
-    addps    %3, [r0+0x80]
-    movaps   %5, [r0+0x10]
+    addps    %2, [r0-0x20]
+    addps    %3, [r0+0x70]
+    movaps   %5, [r0+0x00]
     mulps    %5, %4
-    mulps    %4, [r0-0x40]
+    mulps    %4, [r0-0x50]
     pshufd   %6, %1, 0x4e
     addps    %2, %4
     addps    %3, %5
-    movaps   %4, [r0+0x20]
+    movaps   %4, [r0+0x10]
     mulps    %4, %6
-    mulps    %6, [r0-0x30]
+    mulps    %6, [r0-0x40]
     pshufd   %1, %1, 0x93
     addps    %3, %4
     addps    %2, %6
-    movaps   %5, [r0-0x20]
+    movaps   %5, [r0-0x30]
     mulps    %5, %1
-    mulps    %1, [r0+0x30]
+    mulps    %1, [r0+0x20]
     addps    %2, %5
     addps    %1, %3
 %endmacro
 
 %macro DOTP1 3 ; sum, in, tmp
     pshufd   %3, %2, 0x39
-    mulps    %3, [r0+0x50]
+    mulps    %3, [r0+0x40]
     addps    %1, %3
     pshufd   %3, %2, 0x4e
-    mulps    %3, [r0+0x60]
+    mulps    %3, [r0+0x50]
     addps    %1, %3
     pshufd   %3, %2, 0x93
-    mulps    %3, [r0+0x70]
+    mulps    %3, [r0+0x60]
     addps    %1, %3
-    mulps    %2, [r0+0x40]
+    mulps    %2, [r0+0x30]
     addps    %1, %2
 %endmacro
 
 %macro TEST_NET 1 ; cpu
-; int test_net_x4(const float *weightsf, const int (*dotp)[4], float dc0, float dc1, float dc2, float dc3)
+; int test_net_x4(const float *weightsf, const int (*dotp)[4])
 cglobal test_net_x4_%1, 2,2,8
-    movd     m4, r2m
-    movd     m5, r3m
-    movd     m6, r4m
-    movd     m7, r5m
 %assign stack_pad 0x60+((-stack_offset-gprsize)&15)
-    SUB     rsp, stack_pad
-    add      r0, 0x80
-    pshufd   m4, m4, 0
-    pshufd   m5, m5, 0
-    pshufd   m6, m6, 0
-    pshufd   m7, m7, 0
-    movaps   m0, [r0-0x70]
-    movaps   m1, [r0-0x60]
-    mulps    m4, m0
-    mulps    m5, m0
-    mulps    m6, m0
-    mulps    m7, m0
-    subps    m4, m1
-    subps    m5, m1
-    subps    m6, m1
-    subps    m7, m1
-    movaps   m3, [r0-0x80]
-    cvtdq2ps m0, [r1+0x00]
-    cvtdq2ps m1, [r1+0x10]
-    cvtdq2ps m2, [r1+0x20]
-    mulps    m0, m3
-    mulps    m1, m3
-    mulps    m2, m3
-    cvtdq2ps m3, [r1+0x30]
-    mulps    m3, [r0-0x80]
-    subps    m0, m4
-    subps    m1, m5
-    subps    m2, m6
-    subps    m3, m7
 %define m_1   m6
 %define m_abs m7
-    movaps   m_1,   [ps_1]
-    movaps   m_abs, [ps_abs]
-    SIGMOID  m0, m4
-    SIGMOID  m1, m4
-    SIGMOID  m2, m4
-    SIGMOID  m3, m4
+    SUB     rsp, stack_pad
+    TEST_NET_X4_HEAD
     movaps   [rsp+0x20], m2
     movaps   [rsp+0x30], m3
     DOTP0    m0, m4, m2, m3, m6, m7
@@ -1228,34 +1162,5 @@ cglobal bicubic_ssse3, 4,7,6
     lea       r0, [r0+r3-16]
     neg       r3
     BICUBIC_LOOP_SSSE3 movu
-    REP_RET
-
-
-
-; void block_sums_core(float *dst, uint16_t *src, intptr_t stride, int width)
-cglobal block_sums_core_sse2, 4,7,3
-    pxor      m2, m2
-    shl       r2, 1
-    lea       r1, [r1+r3*2]
-    lea       r0, [r0+r3*4-32]
-    lea       r4, [r1+r2]
-    lea       r5, [r1+r2*2]
-    lea       r6, [r4+r2*2]
-    neg       r3
-align 16
-.loop:
-    mova      m0, [r1+r3*2]
-    paddw     m0, [r4+r3*2]
-    paddw     m0, [r5+r3*2]
-    paddw     m0, [r6+r3*2]
-    add       r3, 8
-    mova      m1, m0
-    punpcklwd m0, m2
-    punpckhwd m1, m2
-    cvtdq2ps  m0, m0
-    cvtdq2ps  m1, m1
-    movaps    [r0+r3*4], m0
-    movaps    [r0+r3*4+16], m1
-    jl .loop
     REP_RET
 
