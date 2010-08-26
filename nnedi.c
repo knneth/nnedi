@@ -291,6 +291,14 @@ void nnedi_config(int nns)
     munge_scale_weights(dsp.scale_weights, (float*)(dsp.scale_weights+48*2*dsp.nns), nnedi_scale_weights_8x6xN[dsp.nnsi]);
 }
 
+static void bicubic(uint8_t *dst, uint8_t *src, intptr_t stride, int n)
+{
+    if(n >= 16)
+        dsp.bicubic(dst, src, stride, n&~15);
+    if(n & 15)
+        bicubic_c(dst+(n&~15), src+(n&~15), stride, n&15);
+}
+
 static void pad_row(uint8_t *src, int width, int height, int stride, int y)
 {
     if(y<0)
@@ -456,7 +464,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         }
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
-        dsp.bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
+        bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
         pix = src+(y-2)*sstride-3;
         uint8_t *dpix = dst+(y*2+1)*dstride;
         nretest = dsp.merge_test_runlength(retest, tested2, width);
