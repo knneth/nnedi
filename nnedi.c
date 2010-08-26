@@ -231,7 +231,6 @@ void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, intptr_t stride, int width)
 #endif
 
 static struct {
-    int initted;
     int cpu;
     int nns, nnsi;
 
@@ -252,9 +251,6 @@ static struct {
 
 void nnedi_config(int nns)
 {
-    if(dsp.initted)
-        return;
-    dsp.initted = 1;
     dsp.cpu = 1;
     if(getenv("noasm"))
         dsp.cpu = 0;
