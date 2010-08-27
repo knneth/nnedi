@@ -477,35 +477,57 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     free(test_dotp);
 }
 
-static void upscale_worker(intptr_t *args)
+static struct {
+    pthread_mutex_t mutex;
+    int njobs;
+    int progress;
+    intptr_t (*args)[8];
+} jobs;
+
+static void upscale_worker(void)
 {
-    upscale_v((uint8_t*)args[0], (uint8_t*)args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+    for(;;) {
+        int i;
+        pthread_mutex_lock(&jobs.mutex);
+        i = jobs.progress++;
+        pthread_mutex_unlock(&jobs.mutex);
+        if(i >= jobs.njobs)
+            return;
+        intptr_t *a = jobs.args[i];
+        upscale_v((uint8_t*)a[0], (uint8_t*)a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
+    }
 }
 
 static void upscale_threaded(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
-    int nthreads = FFMIN(2, height/4);
+    int njobs = FFMIN(8, height/4);
+    int nthreads = FFMIN(2, njobs);
     if(nthreads == 1) {
         upscale_v(dst, src, width, height, dstride, sstride, 1, 1);
         return;
     }
-    intptr_t args[nthreads][8];
+
+    intptr_t args[njobs][8];
+    pthread_mutex_init(&jobs.mutex, NULL);
+    jobs.njobs = njobs;
+    jobs.progress = 0;
+    jobs.args = args;
+    for(int i=0; i<njobs; i++) {
+        int y0 = FFALIGN(height*i/njobs, 2);
+        int y1 = FFALIGN(height*(i+1)/njobs, 2);
+        memcpy(args[i], (intptr_t[]){(intptr_t)(dst+y0*2*dstride), (intptr_t)(src+y0*sstride), width, y1-y0, dstride, sstride, i==0, i==njobs-1}, sizeof(args[i]));
+    }
+
     pthread_t handle[nthreads];
-    for(int i=0; i<nthreads; i++) {
-        int y0 = FFALIGN(height*i/nthreads, 2);
-        int y1 = FFALIGN(height*(i+1)/nthreads, 2);
-        memcpy(args[i], (intptr_t[]){(intptr_t)(dst+y0*2*dstride), (intptr_t)(src+y0*sstride), width, y1-y0, dstride, sstride, i==0, i==nthreads-1}, sizeof(args[i]));
-        int err = pthread_create(handle+i, NULL, (void*)upscale_worker, args[i]);
-        if(err) {
+    for(int i=0; i<nthreads; i++)
+        if(pthread_create(handle+i, NULL, (void*)upscale_worker, NULL)) {
             fprintf(stderr, "[nnedi] pthread_create failed\n");
             return;
         }
-    }
-    for(int i=0; i<nthreads; i++) {
-        int err = pthread_join(handle[i], NULL);
-        if(err)
+    for(int i=0; i<nthreads; i++)
+        if(pthread_join(handle[i], NULL))
             fprintf(stderr, "[nnedi] pthread_join failed\n");
-    }
+    pthread_mutex_destroy(&jobs.mutex);
 }
 
 void nnedi_upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
