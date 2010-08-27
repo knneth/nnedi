@@ -432,7 +432,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     uint8_t *tested = memalign(16, 3*tstride+16); // FIXME only needs stride=align(tstride/2+2)
     uint8_t *tested2 = memalign(16, tstride+16);
     uint16_t *retest = memalign(16, (tstride+32)*sizeof(uint16_t));
-    int (*test_dotp)[4] = memalign(16, tstride*2*sizeof(int));
+    int (*test_dotp)[4] = memalign(16, (width+17)*2*sizeof(int));
     memset(tested, 0, 3*tstride+16);
     tested += 16;
 
@@ -447,7 +447,7 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
             uint8_t *pt = tested+(testy%3)*tstride;
             for(int x=0; x<end; x+=4)
                 *(uint32_t*)(pt+x) = dsp.test_net_x4(dsp.test_weights_f, test_dotp+x+5);
-            pt[end] = 0;
+            pt[end] = pt[end+1] = pt[end+2] = 0;
         }
         if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = dsp.merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
