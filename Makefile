@@ -2,7 +2,7 @@ CFLAGS=-O2 -g -Wall -std=gnu99 -msse -mfpmath=sse -fomit-frame-pointer -DARCH_X8
 CXXFLAGS=-O2 -g -Wall
 
 upscale: upscale.o nnedi.o nnedi-a.o tables.o
-	$(CXX) -o $@ $+ $(LDFLAGS) -lpng -lz
+	$(CXX) -o $@ $+ $(LDFLAGS) -lpng -lz -lpthread
 
 %.o: %.asm
 	yasm -f elf64 -DARCH_X86_64 -o $@ $<

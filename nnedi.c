@@ -23,6 +23,7 @@
 #include <inttypes.h>
 #include <math.h>
 #include <malloc.h>
+#include <pthread.h>
 #include <string.h>
 #include <libavutil/avutil.h>
 #include "nnedi.h"
@@ -299,11 +300,11 @@ static void bicubic(uint8_t *dst, uint8_t *src, intptr_t stride, int n)
         bicubic_c(dst+(n&~15), src+(n&~15), stride, n&15);
 }
 
-static void pad_row(uint8_t *src, int width, int height, int stride, int y)
+static void pad_row(uint8_t *src, int width, int height, int stride, int y, int pad_top, int pad_bottom)
 {
-    if(y<0)
+    if(y<0 && pad_top)
         memcpy(src+y*stride, src+(-1-y)*stride, width);
-    if(y>=height)
+    if(y>=height && pad_bottom)
         memcpy(src+y*stride, src+(2*height-1-y)*stride, width);
     for(int x=1; x<=5; x++)
         src[y*stride-x] = src[y*stride-1+x];
@@ -425,7 +426,7 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     }
 }
 
-static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride, int pad_top, int pad_bottom)
 {
     int twidth = width+11;
     int tstride = FFALIGN(twidth, 16);
@@ -437,19 +438,19 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     tested += 16;
 
     for(int y=-2; y<3; y++)
-        pad_row(src, width, height, sstride, y);
-    for(int y=0, testy=0; y<height; y++) {
-        pad_row(src, width, height, sstride, y+3);
-        for(; testy<=y+1 && testy<height; testy++) {
+        pad_row(src, width, height, sstride, y, pad_top, pad_bottom);
+    for(int y=0, testy=pad_top-1; y<height; y++) {
+        pad_row(src, width, height, sstride, y+3, pad_top, pad_bottom);
+        for(; testy<=y+1 && (testy<height || !pad_bottom); testy++) {
             uint8_t *pix = src+(testy-1)*sstride-5+!(testy&1);
             int end = (width+(testy&1))>>1;
             dsp.test_dotproducts(dsp.test_weights_i_transpose, test_dotp, pix, sstride, end+5);
-            uint8_t *pt = tested+(testy%3)*tstride;
+            uint8_t *pt = tested+((testy+3)%3)*tstride;
             for(int x=0; x<end; x+=4)
                 *(uint32_t*)(pt+x) = dsp.test_net_x4(dsp.test_weights_f, test_dotp+x+5);
             pt[end] = pt[end+1] = pt[end+2] = 0;
         }
-        if(y==height-1) memset(tested+(y+1)%3*tstride, 0, tstride);
+        if(y==height-1 && pad_bottom) memset(tested+(y+1)%3*tstride, 0, tstride);
         int nretest = dsp.merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
         uint8_t *pix = src+(y-1)*sstride-5;
         for(int i=0; i<nretest; i++)
@@ -476,6 +477,37 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     free(test_dotp);
 }
 
+static void upscale_worker(intptr_t *args)
+{
+    upscale_v((uint8_t*)args[0], (uint8_t*)args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+}
+
+static void upscale_threaded(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+{
+    int nthreads = FFMIN(2, height/4);
+    if(nthreads == 1) {
+        upscale_v(dst, src, width, height, dstride, sstride, 1, 1);
+        return;
+    }
+    intptr_t args[nthreads][8];
+    pthread_t handle[nthreads];
+    for(int i=0; i<nthreads; i++) {
+        int y0 = FFALIGN(height*i/nthreads, 2);
+        int y1 = FFALIGN(height*(i+1)/nthreads, 2);
+        memcpy(args[i], (intptr_t[]){(intptr_t)(dst+y0*2*dstride), (intptr_t)(src+y0*sstride), width, y1-y0, dstride, sstride, i==0, i==nthreads-1}, sizeof(args[i]));
+        int err = pthread_create(handle+i, NULL, (void*)upscale_worker, args[i]);
+        if(err) {
+            fprintf(stderr, "[nnedi] pthread_create failed\n");
+            return;
+        }
+    }
+    for(int i=0; i<nthreads; i++) {
+        int err = pthread_join(handle[i], NULL);
+        if(err)
+            fprintf(stderr, "[nnedi] pthread_join failed\n");
+    }
+}
+
 void nnedi_upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int h1 = width;
@@ -484,14 +516,14 @@ void nnedi_upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dst
     uint8_t *b1 = memalign(16, (h1+5)*s1+16);
     uint8_t *p1 = b1+s1*2+16;
     dsp.transpose(p1, src, width, height, s1, sstride);
-    upscale_v(p1, p1, w1, h1, s1/2, s1);
+    upscale_threaded(p1, p1, w1, h1, s1/2, s1);
     int h2 = w1;
     int w2 = h1*2;
     int s2 = FFALIGN(w2+11, 16);
     uint8_t *b2 = memalign(16, (h2+5)*s2+16);
     uint8_t *p2 = b2+s2*2+16;
     dsp.transpose(p2, p1, h2, w2, s2, s1/2);
-    upscale_v(dst, p2, w2, h2, dstride, s2);
+    upscale_threaded(dst, p2, w2, h2, dstride, s2);
     free(b1);
     free(b2);
 }
