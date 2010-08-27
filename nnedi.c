@@ -233,6 +233,7 @@ void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, intptr_t stride, int width)
 
 static struct {
     int cpu;
+    int threads;
     int nns, nnsi;
 
     void (*test_dotproduct)(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride);
@@ -253,6 +254,7 @@ static struct {
 void nnedi_config(int nns)
 {
     dsp.cpu = 1;
+    dsp.threads = 2;
     if(getenv("noasm"))
         dsp.cpu = 0;
     dsp.nnsi = av_clip(nns, 0, 4);
@@ -480,7 +482,6 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
 static struct {
     pthread_mutex_t mutex;
     int njobs;
-    int progress;
     intptr_t (*args)[8];
 } jobs;
 
@@ -489,42 +490,53 @@ static void upscale_worker(void)
     for(;;) {
         int i;
         pthread_mutex_lock(&jobs.mutex);
-        i = jobs.progress++;
+        i = --jobs.njobs;
         pthread_mutex_unlock(&jobs.mutex);
-        if(i >= jobs.njobs)
+        if(i < 0)
             return;
         intptr_t *a = jobs.args[i];
         upscale_v((uint8_t*)a[0], (uint8_t*)a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
     }
 }
 
+// FIXME I could run the prescreener in one pass, and then after learning which
+// pixels need to be scaled, partition the pixels into threads such that each
+// has an equal amount of work to do.
+// The following is just an approximation, which is decent as long as the
+// fraction of pixels that get scaled doesn't vary too much over space.
 static void upscale_threaded(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
-    int njobs = FFMIN(8, height/4);
-    int nthreads = FFMIN(2, njobs);
+    int nthreads = FFMIN(dsp.threads, height/8);
     if(nthreads == 1) {
         upscale_v(dst, src, width, height, dstride, sstride, 1, 1);
         return;
     }
 
-    intptr_t args[njobs][8];
-    pthread_mutex_init(&jobs.mutex, NULL);
-    jobs.njobs = njobs;
-    jobs.progress = 0;
-    jobs.args = args;
-    for(int i=0; i<njobs; i++) {
-        int y0 = FFALIGN(height*i/njobs, 2);
-        int y1 = FFALIGN(height*(i+1)/njobs, 2);
-        memcpy(args[i], (intptr_t[]){(intptr_t)(dst+y0*2*dstride), (intptr_t)(src+y0*sstride), width, y1-y0, dstride, sstride, i==0, i==njobs-1}, sizeof(args[i]));
+    intptr_t args[height/8][8];
+    float ratio = exp2f(1./nthreads);
+    float dy = 4;
+    int njobs = 0;
+    int y1 = height;
+    while(y1 > 0) {
+        int y0 = y1-dy;
+        y0 = FFMAX(0,y0)&~1;
+        memcpy(args[njobs], (intptr_t[]){(intptr_t)(dst+y0*2*dstride), (intptr_t)(src+y0*sstride), width, y1-y0, dstride, sstride, y0==0, y1==height}, sizeof(*args));
+        njobs++;
+        dy *= ratio;
+        y1 = y0;
     }
 
-    pthread_t handle[nthreads];
-    for(int i=0; i<nthreads; i++)
+    pthread_mutex_init(&jobs.mutex, NULL);
+    jobs.njobs = njobs;
+    jobs.args = args;
+    pthread_t handle[nthreads-1];
+    for(int i=0; i<nthreads-1; i++)
         if(pthread_create(handle+i, NULL, (void*)upscale_worker, NULL)) {
             fprintf(stderr, "[nnedi] pthread_create failed\n");
             return;
         }
-    for(int i=0; i<nthreads; i++)
+    upscale_worker();
+    for(int i=0; i<nthreads-1; i++)
         if(pthread_join(handle[i], NULL))
             fprintf(stderr, "[nnedi] pthread_join failed\n");
     pthread_mutex_destroy(&jobs.mutex);
