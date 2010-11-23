@@ -507,12 +507,12 @@ static void upscale_worker(void)
 static void upscale_threaded(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int nthreads = FFMIN(dsp.threads, height/8);
-    if(nthreads == 1) {
+    if(nthreads <= 1) {
         upscale_v(dst, src, width, height, dstride, sstride, 1, 1);
         return;
     }
 
-    intptr_t args[height/8][8];
+    intptr_t args[height/4][8];
     float ratio = exp2f(1./nthreads);
     float dy = 4;
     int njobs = 0;
