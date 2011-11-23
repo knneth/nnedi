@@ -58,11 +58,11 @@ static inline float fast_exp2(float x)
     float c0 = 1.00035;
     float c1 = 1.01173*M_LN2;
     float c2 = 0.49401*M_LN2*M_LN2;
-    int i = (int)(x + 128.5f) - 128;
+    int i = (int)(x + 127.5f) - 127;
     x -= i;
     x = c0 + c1*x + c2*x*x;
     union { float f; int i; } u;
-    u.i = (i+128)<<23;
+    u.i = (i+127)<<23;
     return x * u.f;
 }
 
