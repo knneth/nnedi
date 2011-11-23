@@ -91,6 +91,7 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
             int v = src[y*stride+x];
             sum += v;
             sum2 += v*v;
+            *dst++ = v;
         }
     int var = sum2*48-sum*sum;
     *mean = sum*(1/48.f);
@@ -101,9 +102,6 @@ static void cast_pixels_scale(int16_t *dst, const uint8_t *src, intptr_t stride,
         *stddev = 0;
         *invstddev = 0;
     }
-    for(int y=0; y<6; y++)
-        for(int x=0; x<8; x++)
-            *dst++ = src[y*stride+x];
 }
 
 static void test_dotproduct_c(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
