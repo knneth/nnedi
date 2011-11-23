@@ -14,7 +14,7 @@ static void upscale(CImg<uint8_t> &dst, CImg<uint8_t> &src)
 
 int main(int argc, char **argv)
 {
-    int nns = 0;
+    int nns = 4;
     int align = 0;
     if(argc > 1 && sscanf(argv[1], "-%d", &nns))
         argc--, argv++;

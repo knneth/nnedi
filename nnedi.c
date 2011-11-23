@@ -254,7 +254,7 @@ static struct {
 void nnedi_config(int nns)
 {
     dsp.cpu = 1;
-    dsp.threads = 2;
+    dsp.threads = 8;
     if(getenv("noasm"))
         dsp.cpu = 0;
     dsp.nnsi = av_clip(nns, 0, 4);
