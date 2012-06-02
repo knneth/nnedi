@@ -25,8 +25,10 @@
 #include <malloc.h>
 #include <pthread.h>
 #include <string.h>
+#include <unistd.h>
 #include <libavutil/avutil.h>
 #include "nnedi.h"
+#include "tables.h"
 
 #define MAX_NNS 256
 
@@ -214,8 +216,8 @@ static void transpose_c(uint8_t *dst, uint8_t *src, int width, int height, int d
             dst[x*dstride+y] = src[y*sstride+x];
 }
 
-static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src);
-static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src);
+static void munge_test_weights(nnedi_t *dsp, int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src);
+static void munge_scale_weights(nnedi_t *dsp, int16_t *dsti, float *dstf, const float *src);
 
 #ifdef ARCH_X86
 #include "nnedi_asm.c"
@@ -229,7 +231,7 @@ void nnedi_bicubic_sse2(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
 void nnedi_bicubic_ssse3(uint8_t *dst, uint8_t *src, intptr_t stride, int width);
 #endif
 
-static struct {
+struct nnedi_t {
     int cpu;
     int threads;
     int nns, nnsi;
@@ -247,55 +249,59 @@ static struct {
     ALIGNED_16(int16_t test_weights_i_transpose[48*4]);
     ALIGNED_16(float test_weights_f[64]);
     ALIGNED_16(int16_t scale_weights[(48*2+4*sizeof(float)/sizeof(int16_t))*MAX_NNS]);
-} dsp;
+};
 
-void nnedi_config(int nns)
+nnedi_t *nnedi_config(int nns, int threads)
 {
-    dsp.cpu = 1;
-    dsp.threads = 8;
+    nnedi_t *dsp = malloc(sizeof(nnedi_t));
+    dsp->cpu = 1;
+    if(threads <= 0)
+        threads = sysconf(_SC_NPROCESSORS_ONLN);
+    dsp->threads = threads;
     if(getenv("noasm"))
-        dsp.cpu = 0;
-    dsp.nnsi = av_clip(nns, 0, 4);
-    dsp.nns = 16<<dsp.nnsi;
+        dsp->cpu = 0;
+    dsp->nnsi = av_clip(nns, 0, 4);
+    dsp->nns = 16<<dsp->nnsi;
 
-    dsp.test_dotproduct = test_dotproduct_c;
-    dsp.test_dotproducts = test_dotproducts_c;
-    dsp.scale_nets = scale_nets_tab_c[dsp.nnsi];
-    dsp.test_net_x4 = test_net_x4_c;
-    dsp.merge_test_neighbors = merge_test_neighbors_c;
-    dsp.merge_test_runlength = merge_test_runlength_c;
-    dsp.bicubic = bicubic_c;
-    dsp.transpose = transpose_c;
+    dsp->test_dotproduct = test_dotproduct_c;
+    dsp->test_dotproducts = test_dotproducts_c;
+    dsp->scale_nets = scale_nets_tab_c[dsp->nnsi];
+    dsp->test_net_x4 = test_net_x4_c;
+    dsp->merge_test_neighbors = merge_test_neighbors_c;
+    dsp->merge_test_runlength = merge_test_runlength_c;
+    dsp->bicubic = bicubic_c;
+    dsp->transpose = transpose_c;
 
 #ifdef ARCH_X86
-    if(dsp.cpu) {
-        dsp.test_dotproduct = nnedi_test_dotproduct_sse2;
-        dsp.test_dotproducts = nnedi_test_dotproducts_sse2;
-        dsp.scale_nets = nnedi_scale_nets_tab_sse2[dsp.nnsi];
-        dsp.test_net_x4 = nnedi_test_net_x4_sse2;
-        dsp.merge_test_neighbors = merge_test_neighbors_sse2;
-        dsp.merge_test_runlength = merge_test_runlength_sse2;
-        dsp.bicubic = nnedi_bicubic_sse2;
-        dsp.transpose = transpose_sse2;
+    if(dsp->cpu) {
+        dsp->test_dotproduct = nnedi_test_dotproduct_sse2;
+        dsp->test_dotproducts = nnedi_test_dotproducts_sse2;
+        dsp->scale_nets = nnedi_scale_nets_tab_sse2[dsp->nnsi];
+        dsp->test_net_x4 = nnedi_test_net_x4_sse2;
+        dsp->merge_test_neighbors = merge_test_neighbors_sse2;
+        dsp->merge_test_runlength = merge_test_runlength_sse2;
+        dsp->bicubic = nnedi_bicubic_sse2;
+        dsp->transpose = transpose_sse2;
     }
 
-    if(dsp.cpu) {
-        dsp.test_net_x4 = nnedi_test_net_x4_ssse3;
-        dsp.merge_test_neighbors = merge_test_neighbors_ssse3;
-        dsp.bicubic = nnedi_bicubic_ssse3;
+    if(dsp->cpu) {
+        dsp->test_net_x4 = nnedi_test_net_x4_ssse3;
+        dsp->merge_test_neighbors = merge_test_neighbors_ssse3;
+        dsp->bicubic = nnedi_bicubic_ssse3;
     }
 #else
-    dsp.cpu = 0;
+    dsp->cpu = 0;
 #endif
 
-    munge_test_weights(dsp.test_weights_i, dsp.test_weights_i_transpose, dsp.test_weights_f, nnedi_test_weights);
-    munge_scale_weights(dsp.scale_weights, (float*)(dsp.scale_weights+48*2*dsp.nns), nnedi_scale_weights_8x6xN[dsp.nnsi]);
+    munge_test_weights(dsp, dsp->test_weights_i, dsp->test_weights_i_transpose, dsp->test_weights_f, nnedi_test_weights);
+    munge_scale_weights(dsp, dsp->scale_weights, (float*)(dsp->scale_weights+48*2*dsp->nns), nnedi_scale_weights_8x6xN[dsp->nnsi]);
+    return dsp;
 }
 
-static void bicubic(uint8_t *dst, uint8_t *src, intptr_t stride, int n)
+static void bicubic(nnedi_t *dsp, uint8_t *dst, uint8_t *src, intptr_t stride, int n)
 {
     if(n >= 16)
-        dsp.bicubic(dst, src, stride, n&~15);
+        dsp->bicubic(dst, src, stride, n&~15);
     if(n & 15)
         bicubic_c(dst+(n&~15), src+(n&~15), stride, n&15);
 }
@@ -335,7 +341,7 @@ static float quantize_weights(int16_t *dst, const float *src, int n)
 
 // FIXME try multiple scaling factors and mean removals to minimize total quantization error.
 // or try forcing everything to the same scaling factor to eliminate a few multiplies from scale_net.
-static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src)
+static void munge_test_weights(nnedi_t *dsp, int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src)
 {
     // convolve pixel-wise mean removal into the weights
     float src2[252];
@@ -353,7 +359,7 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
     }
     memcpy(dstf+4, src, 60*sizeof(float));
 
-    if(dsp.cpu) {
+    if(dsp->cpu) {
         // transpose weights into the order that asm wants
         int16_t b[48*4];
         int32_t c[24*4];
@@ -378,45 +384,45 @@ static void munge_test_weights(int16_t *dsti, int16_t *dsti_transpose, float *ds
     }
 }
 
-static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
+static void munge_scale_weights(nnedi_t *dsp, int16_t *dsti, float *dstf, const float *src)
 {
     // the first half of the dotps go through a softmax filter, and thus are invariant to global offsets.
     // remove any offsets they already have, so that the remaining smaller coefs can be represented with higher precision.
     float means[49] = {0};
-    for(int j=0; j<dsp.nns; j++) {
+    for(int j=0; j<dsp->nns; j++) {
         for(int i=0; i<48; i++)
             means[i] += src[48*j+i];
-        means[48] += src[48*2*dsp.nns+j];
+        means[48] += src[48*2*dsp->nns+j];
     }
     for(int i=0; i<49; i++)
-        means[i] /= dsp.nns;
+        means[i] /= dsp->nns;
     float src2[49*2*MAX_NNS];
-    memcpy(src2, src, 49*2*dsp.nns*sizeof(float));
+    memcpy(src2, src, 49*2*dsp->nns*sizeof(float));
     src = src2;
-    for(int j=0; j<dsp.nns; j++) {
+    for(int j=0; j<dsp->nns; j++) {
         for(int i=0; i<48; i++)
             src2[48*j+i] -= means[i];
-        src2[48*2*dsp.nns+j] -= means[48];
+        src2[48*2*dsp->nns+j] -= means[48];
     }
 
     // convolve pixel-wise mean removal into the weights
-    for(int j=0; j<2*dsp.nns; j++)
+    for(int j=0; j<2*dsp->nns; j++)
         remove_mean(src2+48*j, 48);
 
     // cast input weights to int, scaling them by the largest factor that fits.
     // record that factor so they can be converted back after dotproduct.
-    for(int j=0; j<2*dsp.nns; j++) {
+    for(int j=0; j<2*dsp->nns; j++) {
         dstf[2*(j&~3)+(j&3)] = quantize_weights(dsti+48*j, src+48*j, 48);
-        dstf[2*(j&~3)+(j&3)+4] = src[48*2*dsp.nns+j];
+        dstf[2*(j&~3)+(j&3)+4] = src[48*2*dsp->nns+j];
     }
 
     // weights are defined in terms of exp(), but exp2() is easier to calculate
-    for(int j=0; j<2*dsp.nns; j++)
+    for(int j=0; j<2*dsp->nns; j++)
         dstf[j] *= (float)M_LOG2E;
 
-    if(dsp.cpu) {
+    if(dsp->cpu) {
         // transpose weights into the order that asm wants
-        for(int j=0; j<2*dsp.nns; j+=16) {
+        for(int j=0; j<2*dsp->nns; j+=16) {
             int32_t *a = (int32_t*)(dsti+48*j);
             int32_t b[24*16];
             for(int i=0; i<24*16; i++)
@@ -426,7 +432,7 @@ static void munge_scale_weights(int16_t *dsti, float *dstf, const float *src)
     }
 }
 
-static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride, int pad_top, int pad_bottom)
+static void upscale_v(nnedi_t *dsp, uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride, int pad_top, int pad_bottom)
 {
     int twidth = width+11;
     int tstride = FFALIGN(twidth, 16);
@@ -444,20 +450,20 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         for(; testy<=y+1 && (testy<height || !pad_bottom); testy++) {
             uint8_t *pix = src+(testy-1)*sstride-5+!(testy&1);
             int end = (width+(testy&1))>>1;
-            dsp.test_dotproducts(dsp.test_weights_i_transpose, test_dotp, pix, sstride, end+5);
+            dsp->test_dotproducts(dsp->test_weights_i_transpose, test_dotp, pix, sstride, end+5);
             uint8_t *pt = tested+((testy+3)%3)*tstride;
             for(int x=0; x<end; x+=4)
-                *(uint32_t*)(pt+x) = dsp.test_net_x4(dsp.test_weights_f, test_dotp+x+5);
+                *(uint32_t*)(pt+x) = dsp->test_net_x4(dsp->test_weights_f, test_dotp+x+5);
             pt[end] = pt[end+1] = pt[end+2] = 0;
         }
         if(y==height-1 && pad_bottom) memset(tested+(y+1)%3*tstride, 0, tstride);
-        int nretest = dsp.merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
+        int nretest = dsp->merge_test_neighbors(tested2, retest, tested+(y+2)%3*tstride, tested+y%3*tstride, tested+(y+1)%3*tstride, width, y&1);
         uint8_t *pix = src+(y-1)*sstride-5;
         for(int i=0; i<nretest; i++)
-            dsp.test_dotproduct(dsp.test_weights_i, test_dotp[i], pix+retest[i], sstride);
+            dsp->test_dotproduct(dsp->test_weights_i, test_dotp[i], pix+retest[i], sstride);
         retest[nretest] = retest[nretest+1] = retest[nretest+2] = width+1;
         for(int i=0; i<nretest; i+=4) {
-            uint32_t v = dsp.test_net_x4(dsp.test_weights_f, test_dotp+i);
+            uint32_t v = dsp->test_net_x4(dsp->test_weights_f, test_dotp+i);
             tested2[retest[i+0]] = v;
             tested2[retest[i+1]] = v>>8;
             tested2[retest[i+2]] = v>>16;
@@ -465,11 +471,11 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
         }
         if(dst != src)
             memcpy(dst+y*2*dstride, src+y*sstride, width);
-        bicubic(dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
+        bicubic(dsp, dst+(y*2+1)*dstride, src+(y-1)*sstride, sstride, width);
         pix = src+(y-2)*sstride-3;
         uint8_t *dpix = dst+(y*2+1)*dstride;
-        nretest = dsp.merge_test_runlength(retest, tested2, width);
-        dsp.scale_nets(dsp.scale_weights, pix, sstride, dpix, retest, nretest);
+        nretest = dsp->merge_test_runlength(retest, tested2, width);
+        dsp->scale_nets(dsp->scale_weights, pix, sstride, dpix, retest, nretest);
     }
     free(tested-16);
     free(tested2);
@@ -477,23 +483,23 @@ static void upscale_v(uint8_t *dst, uint8_t *src, int width, int height, int dst
     free(test_dotp);
 }
 
-static struct {
+typedef struct {
     pthread_mutex_t mutex;
     int njobs;
-    intptr_t (*args)[8];
-} jobs;
+    intptr_t (*args)[9];
+} jobs_t;
 
-static void upscale_worker(void)
+static void upscale_worker(jobs_t *jobs)
 {
     for(;;) {
         int i;
-        pthread_mutex_lock(&jobs.mutex);
-        i = --jobs.njobs;
-        pthread_mutex_unlock(&jobs.mutex);
+        pthread_mutex_lock(&jobs->mutex);
+        i = --jobs->njobs;
+        pthread_mutex_unlock(&jobs->mutex);
         if(i < 0)
             return;
-        intptr_t *a = jobs.args[i];
-        upscale_v((uint8_t*)a[0], (uint8_t*)a[1], a[2], a[3], a[4], a[5], a[6], a[7]);
+        intptr_t *a = jobs->args[i];
+        upscale_v((nnedi_t*)a[0], (uint8_t*)a[1], (uint8_t*)a[2], a[3], a[4], a[5], a[6], a[7], a[8]);
     }
 }
 
@@ -502,15 +508,15 @@ static void upscale_worker(void)
 // has an equal amount of work to do.
 // The following is just an approximation, which is decent as long as the
 // fraction of pixels that get scaled doesn't vary too much over space.
-static void upscale_threaded(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+static void upscale_threaded(nnedi_t *dsp, uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
-    int nthreads = FFMIN(dsp.threads, height/8);
+    int nthreads = FFMIN(dsp->threads, height/8);
     if(nthreads <= 1) {
-        upscale_v(dst, src, width, height, dstride, sstride, 1, 1);
+        upscale_v(dsp, dst, src, width, height, dstride, sstride, 1, 1);
         return;
     }
 
-    intptr_t args[height/4][8];
+    intptr_t args[height/4][9];
     float ratio = exp2f(1./nthreads);
     float dy = 4;
     int njobs = 0;
@@ -518,44 +524,45 @@ static void upscale_threaded(uint8_t *dst, uint8_t *src, int width, int height, 
     while(y1 > 0) {
         int y0 = y1-dy;
         y0 = FFMAX(0,y0)&~1;
-        memcpy(args[njobs], (intptr_t[]){(intptr_t)(dst+y0*2*dstride), (intptr_t)(src+y0*sstride), width, y1-y0, dstride, sstride, y0==0, y1==height}, sizeof(*args));
+        memcpy(args[njobs], (intptr_t[]){(intptr_t)dsp, (intptr_t)(dst+y0*2*dstride), (intptr_t)(src+y0*sstride), width, y1-y0, dstride, sstride, y0==0, y1==height}, sizeof(*args));
         njobs++;
         dy *= ratio;
         y1 = y0;
     }
 
+    jobs_t jobs;
     pthread_mutex_init(&jobs.mutex, NULL);
     jobs.njobs = njobs;
     jobs.args = args;
     pthread_t handle[nthreads-1];
     for(int i=0; i<nthreads-1; i++)
-        if(pthread_create(handle+i, NULL, (void*)upscale_worker, NULL)) {
+        if(pthread_create(handle+i, NULL, (void*)upscale_worker, &jobs)) {
             fprintf(stderr, "[nnedi] pthread_create failed\n");
             return;
         }
-    upscale_worker();
+    upscale_worker(&jobs);
     for(int i=0; i<nthreads-1; i++)
         if(pthread_join(handle[i], NULL))
             fprintf(stderr, "[nnedi] pthread_join failed\n");
     pthread_mutex_destroy(&jobs.mutex);
 }
 
-void nnedi_upscale_2x(uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
+void nnedi_upscale_2x(nnedi_t *dsp, uint8_t *dst, uint8_t *src, int width, int height, int dstride, int sstride)
 {
     int h1 = width;
     int w1 = height;
     int s1 = FFALIGN(w1+11, 16)*2;
     uint8_t *b1 = memalign(16, (h1+5)*s1+16);
     uint8_t *p1 = b1+s1*2+16;
-    dsp.transpose(p1, src, width, height, s1, sstride);
-    upscale_threaded(p1, p1, w1, h1, s1/2, s1);
+    dsp->transpose(p1, src, width, height, s1, sstride);
+    upscale_threaded(dsp, p1, p1, w1, h1, s1/2, s1);
     int h2 = w1;
     int w2 = h1*2;
     int s2 = FFALIGN(w2+11, 16);
     uint8_t *b2 = memalign(16, (h2+5)*s2+16);
     uint8_t *p2 = b2+s2*2+16;
-    dsp.transpose(p2, p1, h2, w2, s2, s1/2);
-    upscale_threaded(dst, p2, w2, h2, dstride, s2);
+    dsp->transpose(p2, p1, h2, w2, s2, s1/2);
+    upscale_threaded(dsp, dst, p2, w2, h2, dstride, s2);
     free(b1);
     free(b2);
 }
