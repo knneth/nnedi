@@ -1,10 +1,11 @@
-CFLAGS=-O2 -g -Wall -std=gnu99 -msse -mfpmath=sse -fomit-frame-pointer -DARCH_X86
-CXXFLAGS=-O2 -g -Wall
+OPTFLAGS=-O2 -g -Wall -msse -mfpmath=sse -fomit-frame-pointer -DARCH_X86 -Wno-sign-compare
+CFLAGS=$(OPTFLAGS) -std=gnu99
+CXXFLAGS=$(OPTFLAGS)
 
 upscale: upscale.o libnnedi.a
 	$(CXX) -o $@ $+ $(LDFLAGS) -lpng -lz -lpthread
 
-libnnedi.a: nnedi.o nnedi-a.o tables.o
+libnnedi.a: nnedi.o nnedi-a.o nnedi_cimg.o tables.o
 	$(AR) rc $@ $+
 
 %.o: %.asm
