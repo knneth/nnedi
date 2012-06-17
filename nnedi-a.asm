@@ -37,7 +37,6 @@ ss_1_3:      dd 0.3333333333
 ss_1_16:     dd 0.0625
 
 SECTION .text
-INIT_XMM sse2
 
 
 %macro HADDPS 2 ; dst, src
@@ -98,10 +97,12 @@ INIT_XMM sse2
     %else
         %error dotproduct register allocation failed
     %endif
-    mova     m %+ %%i, [r0+%%n*16-offset]
-    %if %%n*16-offset >= 112 ; keep opcodes small
-        add  r0, 256
-        %assign offset offset+256
+    %if notcpuflag(avx)
+        mova     m %+ %%i, [r0+%%n*16-offset]
+        %if %%n*16-offset >= 112 ; keep opcodes small
+            add  r0, 256
+            %assign offset offset+256
+        %endif
     %endif
     CAT_XDEFINE tmp, %%n, %%i
     CAT_XDEFINE used, %%i, 1
@@ -118,7 +119,15 @@ INIT_XMM sse2
         %endif
     %endif
     %assign %%i tmp %+ %%n
-    pmaddwd m %+ %%i, m %+ %%j
+    %if cpuflag(avx)
+        pmaddwd m %+ %%i, m %+ %%j, [r0+%%n*16-offset]
+        %if %%n*16-offset >= 112 ; keep opcodes small
+            add  r0, 256
+            %assign offset offset+256
+        %endif
+    %else
+        pmaddwd m %+ %%i, m %+ %%j
+    %endif
     %if (%%n & 3) == 3
         pshufd  m %+ %%j, m %+ %%j, 0x39
     %endif
@@ -135,6 +144,7 @@ INIT_XMM sse2
     CAT_UNDEF tmp, %%n
 %endmacro
 
+%macro SCALE_DOTP 0
 %assign offset 0
 %if ARCH_X86_64
 cglobal scale_dotproduct
@@ -185,6 +195,7 @@ cglobal scale_dotproduct
     add        r1, 64
     ret
 %endif
+%endmacro ; SCALE_DOTP
 
 
 %macro DOTP_MUL2 1
@@ -195,7 +206,15 @@ cglobal scale_dotproduct
         %assign %%j 7
     %endif
     %assign %%i tmp %+ %%n
-    pmaddwd m %+ %%i, m %+ %%j
+    %if cpuflag(avx)
+        pmaddwd m %+ %%i, m %+ %%j, [r0+%%n*16-offset]
+        %if %%n*16-offset >= 112 ; keep opcodes small
+            add  r0, 256
+            %assign offset offset+256
+        %endif
+    %else
+        pmaddwd m %+ %%i, m %+ %%j
+    %endif
 %endmacro
 
 %macro LOAD12x4 8
@@ -219,6 +238,7 @@ cglobal scale_dotproduct
     punpcklbw %6, %7
 %endmacro
 
+%macro TEST_DOTP 0
 ; void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
 %assign offset 0
 %if ARCH_X86_64
@@ -278,6 +298,7 @@ cglobal test_dotproduct, 4,5,8
     ADD rsp, stack_pad
     RET
 %endif
+%endmacro ; TEST_DOTP
 
 
 %macro DOTP_LOAD3 1
@@ -298,18 +319,25 @@ cglobal test_dotproduct, 4,5,8
         %error dotproduct register allocation failed
     %endif
     %if %%n*16-offset0 < 0x80
-        mova  m %+ %%i, [r0+%%n*16-offset0]
+        CAT_XDEFINE adr, %%i, [r0+%%n*16-offset0]
     %else
-        mova  m %+ %%i, [r6+%%n*16-offset1]
+        CAT_XDEFINE adr, %%i, [r6+%%n*16-offset1]
     %endif
     CAT_XDEFINE tmp, %%n, %%i
     CAT_XDEFINE used, %%i, 1
+    %if notcpuflag(avx)
+        mova  m %+ %%i, adr %+ %%i
+    %endif
 %endmacro
 
 %macro DOTP_MUL3 1
     %assign %%n %1
     %assign %%i tmp %+ %%n
-    pmaddwd m %+ %%i, m_pix
+    %if cpuflag(avx)
+        pmaddwd m %+ %%i, m_pix, adr %+ %%i
+    %else
+        pmaddwd m %+ %%i, m_pix
+    %endif
     %if %%n % 6 == 5 && %%n < 18
         pshufd  m_pix, m_pix, 0x39
     %endif
@@ -345,6 +373,7 @@ cglobal test_dotproduct, 4,5,8
     punpckhbw %4, %5
 %endmacro
 
+%macro TEST_DOTPS 0
 ; void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width)
 %assign offset0 128
 %assign offset1 384
@@ -447,6 +476,16 @@ cglobal test_dotproducts, 5,7,8
     ADD     rsp, stack_pad
     RET
 %endif
+%endmacro ; TEST_DOTPS
+
+INIT_XMM sse2
+SCALE_DOTP
+TEST_DOTP
+TEST_DOTPS
+INIT_XMM avx
+SCALE_DOTP
+TEST_DOTP
+TEST_DOTPS
 
 
 
@@ -779,23 +818,31 @@ cglobal scale_nets%1, 6,12,16
     RET
 %endmacro ; SCALE_NET
 
+%if ARCH_X86_64
+    %define pointer dq
+%else
+    %define pointer dd
+%endif
+
+%macro SCALE_NETS 0
 SCALE_NET 0
 SCALE_NET 1
 SCALE_NET 2
 SCALE_NET 3
 SCALE_NET 4
 
-%if ARCH_X86_64
-    %define pointer dq
-%else
-    %define pointer dd
-%endif
 cglobal scale_nets_tab
-    pointer scale_nets0_sse2
-    pointer scale_nets1_sse2
-    pointer scale_nets2_sse2
-    pointer scale_nets3_sse2
-    pointer scale_nets4_sse2
+    pointer scale_nets0 %+ SUFFIX
+    pointer scale_nets1 %+ SUFFIX
+    pointer scale_nets2 %+ SUFFIX
+    pointer scale_nets3 %+ SUFFIX
+    pointer scale_nets4 %+ SUFFIX
+%endmacro
+
+INIT_XMM sse2
+SCALE_NETS
+INIT_XMM avx
+SCALE_NETS
 
 
 
