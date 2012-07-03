@@ -37,7 +37,7 @@ ss_1_3:      dd 0.3333333333
 ss_1_16:     dd 0.0625
 
 SECTION .text
-INIT_XMM
+INIT_XMM sse2
 
 
 %macro HADDPS 2 ; dst, src
@@ -109,7 +109,7 @@ INIT_XMM
 
 %macro DOTP_MUL 1
     %assign %%n %1
-    %ifdef ARCH_X86_64
+    %if ARCH_X86_64
         %assign %%j 10 + (%%n / 16)
     %else
         %assign %%j 7
@@ -136,8 +136,8 @@ INIT_XMM
 %endmacro
 
 %assign offset 0
-%ifdef ARCH_X86_64
-cglobal scale_dotproduct_sse2
+%if ARCH_X86_64
+cglobal scale_dotproduct
     DOTP_LOAD 0
     DOTP_LOAD 1
     DOTP_LOAD 2
@@ -166,7 +166,7 @@ cglobal scale_dotproduct_sse2
     ret
 
 %else ; X86_32
-cglobal scale_dotproduct_sse2
+cglobal scale_dotproduct
 %assign i 0
 %rep 95
     DOTP_LOAD i
@@ -189,7 +189,7 @@ cglobal scale_dotproduct_sse2
 
 %macro DOTP_MUL2 1
     %assign %%n %1
-    %ifdef ARCH_X86_64
+    %if ARCH_X86_64
         %assign %%j 10 + (%%n / 4)
     %else
         %assign %%j 7
@@ -221,8 +221,8 @@ cglobal scale_dotproduct_sse2
 
 ; void test_dotproduct(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride)
 %assign offset 0
-%ifdef ARCH_X86_64
-cglobal test_dotproduct_sse2, 4,5,16
+%if ARCH_X86_64
+cglobal test_dotproduct, 4,5,16
     LOAD12x4 m10, m11, m12, m13, m14, m15, m0, m1
     DOTP_LOAD 0
     DOTP_LOAD 1
@@ -248,7 +248,7 @@ cglobal test_dotproduct_sse2, 4,5,16
     RET
 
 %else ; X86_32
-cglobal test_dotproduct_sse2, 4,5,8
+cglobal test_dotproduct, 4,5,8
 %assign stack_pad 0x50+((-stack_offset-gprsize)&15)
     SUB rsp, stack_pad
     LOAD12x4 m7, m0, m1, m2, m3, m4, m5, m6
@@ -348,8 +348,8 @@ cglobal test_dotproduct_sse2, 4,5,8
 ; void test_dotproducts(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width)
 %assign offset0 128
 %assign offset1 384
-%ifdef ARCH_X86_64
-cglobal test_dotproducts_sse2, 5,7,16
+%if ARCH_X86_64
+cglobal test_dotproducts, 5,7,16
 %define m_pix m12
     lea      r5, [r3*3]
     lea      r6, [r0+offset1]
@@ -401,7 +401,7 @@ cglobal test_dotproducts_sse2, 5,7,16
     REP_RET
 
 %else ; X86_32
-cglobal test_dotproducts_sse2, 5,7,8
+cglobal test_dotproducts, 5,7,8
 %define m_pix m7
 %assign stack_pad 0x50+((-stack_offset-gprsize)&15)
     SUB     rsp, stack_pad
@@ -510,9 +510,9 @@ cglobal test_dotproducts_sse2, 5,7,8
 %macro SCALE_NET 1 ; nns
 ; int scale_net(struct { int16_t i[48*2*NNS]; float f[4*NNS]; } *weights, const uint8_t *pix, intptr_t stride)
 %assign NNS 16<<%1
-cglobal scale_net%1_sse2
+cglobal scale_net%1
     %assign stack_pad NNS*8+16+((-gprsize)&15)
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     %define buf rsp
 %else
     %assign stack_pad stack_pad+0x60
@@ -528,7 +528,7 @@ cglobal scale_net%1_sse2
     lea        r3, [r2*3]
     add        r3, r1
     pxor       m0, m0
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     LOAD_SUM_SQUARE m10, m11, m1, m2, m3, [r1], [r1+r2]
     LOAD_SUM_SQUARE m12, m13, m3, m4, m5, [r1+r2*2], [r3]
     paddd      m2, m4
@@ -574,10 +574,10 @@ cglobal scale_net%1_sse2
     ; neural net
     lea      r1, [buf]
 %rep NNS/8
-    call scale_dotproduct_sse2
+    call scale_dotproduct
 %endrep
 
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     %define  m_invstddev  m9
     %define  m_exp_bias   m10
     %define  m_exp_c0     m11
@@ -644,13 +644,10 @@ cglobal scale_net%1_sse2
 
 
 ; void scale_nets(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n)
-cglobal scale_nets%1_sse2, 6,7,16
-%ifdef ARCH_X86_64
-    PUSH    r12
-    PUSH    r13
-    PUSH    r14
+cglobal scale_nets%1, 6,12,16
+%if ARCH_X86_64
     mov      r6, r1
-    mov     r10, r3
+    mov      r7, r3
 %endif
     %assign stack_pad 0x80+((-stack_offset-gprsize)&15)
     SUB     rsp, stack_pad
@@ -658,51 +655,51 @@ cglobal scale_nets%1_sse2, 6,7,16
     jle .skip4
 
 .loop4:
-%ifdef ARCH_X86_64
-    movzx   r14, word [r4+6]
-    movzx   r13, word [r4+4]
-    movzx   r12, word [r4+2]
-    movzx   r11, word [r4]
-    lea      r1, [r6+r14]
+%if ARCH_X86_64
+    movzx   r11, word [r4+6]
+    movzx   r10, word [r4+4]
+    movzx    r9, word [r4+2]
+    movzx    r8, word [r4]
+    lea      r1, [r6+r11]
 %else
     mov      r6, r1m
     movzx    r1, word [r4+6]
     add      r1, r6
 %endif
-    call scale_net%1_sse2
+    call scale_net%1
     movaps [rsp+0x20], m0
     movaps [rsp+0x50], m1
     movss  [rsp+0x6c], m2
     movss  [rsp+0x7c], m3
-%ifdef ARCH_X86_64
-    lea      r1, [r6+r13]
+%if ARCH_X86_64
+    lea      r1, [r6+r10]
 %else
     movzx    r1, word [r4+4]
     add      r1, r6
 %endif
-    call scale_net%1_sse2
+    call scale_net%1
     movaps [rsp+0x10], m0
     movaps [rsp+0x40], m1
     movss  [rsp+0x68], m2
     movss  [rsp+0x78], m3
-%ifdef ARCH_X86_64
-    lea      r1, [r6+r12]
+%if ARCH_X86_64
+    lea      r1, [r6+r9]
 %else
     movzx    r1, word [r4+2]
     add      r1, r6
 %endif
-    call scale_net%1_sse2
+    call scale_net%1
     movaps [rsp+0x00], m0
     movaps [rsp+0x30], m1
     movss  [rsp+0x64], m2
     movss  [rsp+0x74], m3
-%ifdef ARCH_X86_64
-    lea      r1, [r6+r11]
+%if ARCH_X86_64
+    lea      r1, [r6+r8]
 %else
     movzx    r1, word [r4]
     add      r1, r6
 %endif
-    call scale_net%1_sse2
+    call scale_net%1
     SWAP 4, 0
     movaps   m5, [rsp+0x00]
     movaps   m6, [rsp+0x10]
@@ -723,16 +720,16 @@ cglobal scale_nets%1_sse2, 6,7,16
     mulps    m0, m1
     addps    m0, m5
     cvtps2dq m0, m0
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     packuswb m0, m0
     movq     r1, m0
-    mov      [r10+r11], r1b
+    mov      [r7+r8], r1b
     shr      r1, 16
-    mov      [r10+r12], r1b
+    mov      [r7+r9], r1b
     shr      r1, 16
-    mov      [r10+r13], r1b
+    mov      [r7+r10], r1b
     shr      r1, 16
-    mov      [r10+r14], r1b
+    mov      [r7+r11], r1b
 %else
     packssdw m0, m0
     packuswb m0, m0
@@ -759,16 +756,16 @@ cglobal scale_nets%1_sse2, 6,7,16
     add      r5, 3
     jle .ret
 .loop1:
-%ifdef ARCH_X86_64
-    movzx   r11, word [r4]
-    lea      r1, [r6+r11]
-    call scale_net%1_sse2
+%if ARCH_X86_64
+    movzx   r8, word [r4]
+    lea      r1, [r6+r8]
+    call scale_net%1
     SCALE_NET_TAIL r1d
-    mov      [r10+r11], r1b
+    mov      [r7+r8], r1b
 %else
     movzx    r1, word [r4]
     add      r1, r1m
-    call scale_net%1_sse2
+    call scale_net%1
     SCALE_NET_TAIL r1d
     movzx    r3, word [r4]
     add      r3, r3m
@@ -779,11 +776,6 @@ cglobal scale_nets%1_sse2, 6,7,16
     jg .loop1
 .ret:
     ADD     rsp, stack_pad
-%ifdef ARCH_X86_64
-    POP     r14
-    POP     r13
-    POP     r12
-%endif
     RET
 %endmacro ; SCALE_NET
 
@@ -793,12 +785,12 @@ SCALE_NET 2
 SCALE_NET 3
 SCALE_NET 4
 
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
     %define pointer dq
 %else
     %define pointer dd
 %endif
-cglobal scale_nets_tab_sse2
+cglobal scale_nets_tab
     pointer scale_nets0_sse2
     pointer scale_nets1_sse2
     pointer scale_nets2_sse2
@@ -809,7 +801,7 @@ cglobal scale_nets_tab_sse2
 
 %if 0
 ; int test_net(const float *weightsf, const int *dotp)
-cglobal test_net_sse2, 2,2,10
+cglobal test_net, 2,2,10
 %define m_1   m8
 %define m_abs m9
     add      r0, 0x80
@@ -865,7 +857,7 @@ cglobal test_net_sse2, 2,2,10
 
 
 
-%macro TEST_NET_TAIL 1 ; cpu
+%macro TEST_NET_TAIL 0
     movaps   m4, m0
     unpcklpd m0, m1
     unpckhpd m4, m1
@@ -879,12 +871,12 @@ cglobal test_net_sse2, 2,2,10
     shufps   m0, m2, 0xdd
     andps    m0, m_abs
     andps    m4, m_abs
-%ifidn %1, ssse3
+%if cpuflag(ssse3)
     movaps   m2, [shuf_packdb]
 %endif
     psubd    m0, m4
     psrld    m0, 31
-%ifidn %1, ssse3
+%if cpuflag(ssse3)
     pshufb   m0, m2
 %else
     packssdw m0, m0
@@ -917,7 +909,7 @@ cglobal test_net_sse2, 2,2,10
     SIGMOID  m3, m4
 %endmacro
 
-%ifdef ARCH_X86_64
+%if ARCH_X86_64
 
 %macro DOTP0 2
     pshufd   m8, %1, 0x39
@@ -956,9 +948,9 @@ cglobal test_net_sse2, 2,2,10
     addps    %1, m10
 %endmacro
 
-%macro TEST_NET 1 ; cpu
+%macro TEST_NET 0
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4])
-cglobal test_net_x4_%1, 2,2,16
+cglobal test_net_x4, 2,2,16
 %define m_1   m14
 %define m_abs m15
     TEST_NET_X4_HEAD
@@ -986,7 +978,7 @@ cglobal test_net_x4_%1, 2,2,16
     DOTP1    m1, m5
     DOTP1    m2, m6
     DOTP1    m3, m7
-    TEST_NET_TAIL %1
+    TEST_NET_TAIL
     RET
 %endmacro ; TEST_NET
 
@@ -1033,9 +1025,9 @@ cglobal test_net_x4_%1, 2,2,16
     addps    %1, %2
 %endmacro
 
-%macro TEST_NET 1 ; cpu
+%macro TEST_NET 0
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4])
-cglobal test_net_x4_%1, 2,2,8
+cglobal test_net_x4, 2,2,8
 %assign stack_pad 0x60+((-stack_offset-gprsize)&15)
 %define m_1   m6
 %define m_abs m7
@@ -1068,14 +1060,16 @@ cglobal test_net_x4_%1, 2,2,8
     DOTP1    m1, m5, m4
     DOTP1    m2, m6, m4
     DOTP1    m3, m7, m4
-    TEST_NET_TAIL %1
+    TEST_NET_TAIL
     ADD     rsp, stack_pad
     RET
 %endmacro ; TEST_NET
 %endif ; X86_32
 
-TEST_NET sse2
-TEST_NET ssse3
+INIT_XMM sse2
+TEST_NET
+INIT_XMM ssse3
+TEST_NET
 
 
 
@@ -1137,7 +1131,8 @@ align 16
 %endmacro
 
 ; void bicubic(uint8_t *dst, uint8_t *src, intptr_t stride, int width)
-cglobal bicubic_sse2, 4,7,8
+INIT_XMM sse2
+cglobal bicubic, 4,7,8
     add       r1, r3
     lea       r4, [r1+r2]
     lea       r5, [r1+r2*2]
@@ -1147,7 +1142,8 @@ cglobal bicubic_sse2, 4,7,8
     BICUBIC_LOOP_SSE2
     REP_RET
 
-cglobal bicubic_ssse3, 4,7,6
+INIT_XMM ssse3
+cglobal bicubic, 4,7,6
     add       r1, r3
     lea       r4, [r1+r2]
     lea       r5, [r1+r2*2]

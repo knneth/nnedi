@@ -9,7 +9,7 @@ libnnedi.a: nnedi.o nnedi-a.o nnedi_cimg.o tables.o
 	$(AR) rc $@ $+
 
 %.o: %.asm
-	yasm -f elf64 -DARCH_X86_64 -o $@ $<
+	yasm -f elf64 -DARCH_X86_64=1 -o $@ $<
 	strip -x $@
 
 nnedi.o: nnedi_asm.c
