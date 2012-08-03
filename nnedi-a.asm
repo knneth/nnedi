@@ -120,7 +120,13 @@ SECTION .text
     %endif
     %assign %%i tmp %+ %%n
     %if cpuflag(avx)
-        pmaddwd m %+ %%i, m %+ %%j, [r0+%%n*16-offset]
+        %if cpuflag(xop) && %%n >= 4
+            %assign %%k %%n&3
+            pmadcswd m %+ %%k, m %+ %%j, [r0+%%n*16-offset], m %+ %%k
+            CAT_UNDEF used, %%i
+        %else
+            pmaddwd m %+ %%i, m %+ %%j, [r0+%%n*16-offset]
+        %endif
         %if %%n*16-offset >= 112 ; keep opcodes small
             add  r0, 256
             %assign offset offset+256
@@ -136,7 +142,7 @@ SECTION .text
 %macro DOTP_ACC 1
     %assign %%n %1
     %assign %%i tmp %+ %%n
-    %if %%n >= 4
+    %if notcpuflag(xop) && %%n >= 4
         %assign %%j %%n&3
         paddd m %+ %%j, m %+ %%i
         CAT_UNDEF used, %%i
@@ -207,7 +213,13 @@ cglobal scale_dotproduct
     %endif
     %assign %%i tmp %+ %%n
     %if cpuflag(avx)
-        pmaddwd m %+ %%i, m %+ %%j, [r0+%%n*16-offset]
+        %if cpuflag(xop) && %%n >= 4
+            %assign %%k %%n&3
+            pmadcswd m %+ %%k, m %+ %%j, [r0+%%n*16-offset], m %+ %%k
+            CAT_UNDEF used, %%i
+        %else
+            pmaddwd m %+ %%i, m %+ %%j, [r0+%%n*16-offset]
+        %endif
         %if %%n*16-offset >= 112 ; keep opcodes small
             add  r0, 256
             %assign offset offset+256
@@ -333,7 +345,11 @@ cglobal test_dotproduct, 4,5,8
 %macro DOTP_MUL3 1
     %assign %%n %1
     %assign %%i tmp %+ %%n
-    %if cpuflag(avx)
+    %if cpuflag(xop) && %%n >= 1
+        %assign %%j %%n % 6
+        pmadcswd m %+ %%j, m_pix, adr %+ %%i, m %+ %%j
+        CAT_UNDEF used, %%i
+    %elif cpuflag(avx)
         pmaddwd m %+ %%i, m_pix, adr %+ %%i
     %else
         pmaddwd m %+ %%i, m_pix
@@ -346,7 +362,7 @@ cglobal test_dotproduct, 4,5,8
 %macro DOTP_ACC3 1
     %assign %%n %1
     %assign %%i tmp %+ %%n
-    %if %%n >= 1
+    %if notcpuflag(xop) && %%n >= 1
         %assign %%j %%n % 6
         paddd m %+ %%j, m %+ %%i
         CAT_UNDEF used, %%i
@@ -483,6 +499,10 @@ SCALE_DOTP
 TEST_DOTP
 TEST_DOTPS
 INIT_XMM avx
+SCALE_DOTP
+TEST_DOTP
+TEST_DOTPS
+INIT_XMM xop
 SCALE_DOTP
 TEST_DOTP
 TEST_DOTPS
@@ -842,6 +862,8 @@ cglobal scale_nets_tab
 INIT_XMM sse2
 SCALE_NETS
 INIT_XMM avx
+SCALE_NETS
+INIT_XMM xop
 SCALE_NETS
 
 
