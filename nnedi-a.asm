@@ -19,7 +19,7 @@
 
 %include "x86inc.asm"
 
-SECTION_RODATA
+SECTION_RODATA 32
 ps_exp_bias0: times 8 dd 12582912.0 ; 3<<22
 ps_exp_bias1: times 8 dd 12583040.0 ; (3<<22)+128
 ps_exp_c0:    times 8 dd 1.00035
@@ -517,9 +517,16 @@ TEST_DOTPS
     mulps    %1, %2
 %endmacro
 
-%macro EXP2 3 ; dst, tmp, tmp
+%macro EXP2 3-4 ; dst, tmp, tmp, tmp (avx only)
     addps    %2, %1, m_exp_bias
+%if mmsize==32
+    vextractf128 %4, %2, 1
+    vpslld   xmm %+ n%3, xmm %+ n%2, 23
+    vpslld   %4, %4, 23
+    vinsertf128 %3, %3, %4, 1
+%else
     pslld    %3, %2, 23
+%endif
     subps    %2, m_exp_bias
     subps    %1, %2
     mulps    %2, %1, m_exp_c1
@@ -527,7 +534,12 @@ TEST_DOTPS
     mulps    %1, m_exp_c2
     addps    %2, m_exp_c0
     addps    %1, %2
+    ; FIXME do I need both versions? xmm could do mulps too, it would just have more latency and constraints on execution units
+%if mmsize==32
     mulps    %1, %3
+%else
+    paddd    %1, %3
+%endif
 %endmacro
 
 %macro LOAD_SUM_SQUARE 7 ; dst0, dst1, sum0, sum1, t2, src0, src1
@@ -632,6 +644,11 @@ cglobal scale_net%1
     call scale_dotproduct
 %endrep
 
+%if cpuflag(avx) && ARCH_X86_64 ; FIXME register allocation for x86_32
+    INIT_YMM cpuname
+%else
+    %define  mova movaps
+%endif
 %if ARCH_X86_64
     %define  m_invstddev  m9
     %define  m_exp_bias   m10
@@ -640,13 +657,11 @@ cglobal scale_net%1
     %define  m_exp_c2     m13
     %define  m_1          m14
     %define  m_abs        m15
-    movss    m_invstddev, [invstddev]
-    movaps   m_exp_c0,    [ps_exp_c0]
-    shufps   m_invstddev, m_invstddev, 0
-    movaps   m_exp_c1,    [ps_exp_c1]
-    movaps   m_exp_c2,    [ps_exp_c2]
-    movaps   m_1,         [ps_1]
-    movaps   m_abs,       [ps_abs]
+    mova     m_exp_c0,    [ps_exp_c0]
+    mova     m_exp_c1,    [ps_exp_c1]
+    mova     m_exp_c2,    [ps_exp_c2]
+    mova     m_1,         [ps_1]
+    mova     m_abs,       [ps_abs]
 %else
     %define  m_invstddev  m6
     %define  m_exp_bias   m7
@@ -655,19 +670,20 @@ cglobal scale_net%1
     %define  m_exp_c2     [ps_exp_c2]
     %define  m_1          [ps_1]
     %define  m_abs        [ps_abs]
+%endif
+%if mmsize==32
+    mova     m_exp_bias,  [ps_exp_bias1]
+    vbroadcastss m_invstddev, [invstddev]
+%else
+    mova     m_exp_bias,  [ps_exp_bias0]
     movss    m_invstddev, [invstddev]
     shufps   m_invstddev, m_invstddev, 0
-%endif
-%if cpuflag(avx)
-    movaps   m_exp_bias,  [ps_exp_bias1]
-%else
-    movaps   m_exp_bias,  [ps_exp_bias0]
 %endif
 
     xorps    m0, m0
     xorps    m1, m1
 %assign i 0
-%rep NNS/4
+%rep NNS*4/mmsize
     mulps    m4, m_invstddev, [r0+i]
     mulps    m5, m_invstddev, [r0+i+NNS*4]
     cvtdq2ps m2, [buf+i]
@@ -677,12 +693,20 @@ cglobal scale_net%1
     addps    m2, [r0+i+NNS*8]
     addps    m3, [r0+i+NNS*12]
     SIGMOID  m3, m4
-    EXP2     m2, m4, m5
+    EXP2     m2, m4, m5, xmm6
     mulps    m3, m2
     addps    m0, m2
     addps    m1, m3
-%assign i i+16
+%assign i i+mmsize
 %endrep
+%if cpuflag(avx)
+    vextractf128 xmm2, ymm0, 1
+    vextractf128 xmm3, ymm1, 1
+    vzeroupper
+    INIT_XMM cpuname
+    addps        m0, m2
+    addps        m1, m3
+%endif
     sub      r0, 48*4*NNS
     movss    m2, [stddev]
     movss    m3, [mean]

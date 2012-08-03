@@ -253,13 +253,13 @@ struct nnedi_t {
 
     ALIGNED_16(int16_t test_weights_i[48*4]);
     ALIGNED_16(int16_t test_weights_i_transpose[48*4]);
-    ALIGNED_16(float test_weights_f[64]);
-    ALIGNED_16(int16_t scale_weights[(48*2+4*sizeof(float)/sizeof(int16_t))*MAX_NNS]);
+    ALIGNED_32(float test_weights_f[64]);
+    ALIGNED_32(int16_t scale_weights[(48*2+4*sizeof(float)/sizeof(int16_t))*MAX_NNS]);
 };
 
 nnedi_t *nnedi_config(int nns, int threads)
 {
-    nnedi_t *dsp = malloc(sizeof(nnedi_t));
+    nnedi_t *dsp = memalign(32, sizeof(nnedi_t));
     dsp->cpu = nnedi_cpu_detect();
     if(threads <= 0)
         threads = nnedi_cpu_num_processors();
