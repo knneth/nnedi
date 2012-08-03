@@ -510,25 +510,21 @@ TEST_DOTPS
 
 
 %macro SIGMOID 2 ; dst, tmp
-    movaps   %2, %1
-    andps    %1, m_abs
-    addps    %1, m_1
-    rcpps    %1, %1
+    andps    %2, %1, m_abs
+    addps    %2, m_1
+    rcpps    %2, %2
     mulps    %1, %2
 %endmacro
 
 %macro EXP2 3 ; dst, tmp, tmp
-    movaps   %2, %1
-    addps    %1, m_exp_bias
-    movaps   %3, %1
-    subps    %1, m_exp_bias
-    pslld    %3, 23
-    subps    %2, %1
-    movaps   %1, %2
-    mulps    %2, %2
-    mulps    %1, m_exp_c1
-    mulps    %2, m_exp_c2
-    addps    %1, m_exp_c0
+    addps    %2, %1, m_exp_bias
+    pslld    %3, %2, 23
+    subps    %2, m_exp_bias
+    subps    %1, %2
+    mulps    %2, %1, m_exp_c1
+    mulps    %1, %1
+    mulps    %1, m_exp_c2
+    addps    %2, m_exp_c0
     addps    %1, %2
     paddd    %1, %3
 %endmacro
@@ -536,8 +532,7 @@ TEST_DOTPS
 %macro LOAD_SUM_SQUARE 7 ; dst0, dst1, sum0, sum1, t2, src0, src1
     movq       %3, %6
     movq       %5, %7
-    mova       %4, %3
-    punpcklqdq %4, %5
+    punpcklqdq %4, %3, %5
     punpcklbw  %3, m0
     punpcklbw  %5, m0
     mova       %1, %3
@@ -669,12 +664,10 @@ cglobal scale_net%1
     xorps    m1, m1
 %assign i 0
 %rep NNS/4
-    movaps   m4, [r0+i*8]
-    movaps   m5, [r0+i*8+NNS*8]
+    mulps    m4, m_invstddev, [r0+i*8]
+    mulps    m5, m_invstddev, [r0+i*8+NNS*8]
     cvtdq2ps m2, [buf+i*4]
     cvtdq2ps m3, [buf+i*4+NNS*4]
-    mulps    m4, m_invstddev
-    mulps    m5, m_invstddev
     mulps    m2, m4
     mulps    m3, m5 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
     addps    m2, [r0+i*8+16]
