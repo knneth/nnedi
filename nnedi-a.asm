@@ -664,20 +664,20 @@ cglobal scale_net%1
     xorps    m1, m1
 %assign i 0
 %rep NNS/4
-    mulps    m4, m_invstddev, [r0+i*8]
-    mulps    m5, m_invstddev, [r0+i*8+NNS*8]
-    cvtdq2ps m2, [buf+i*4]
-    cvtdq2ps m3, [buf+i*4+NNS*4]
+    mulps    m4, m_invstddev, [r0+i]
+    mulps    m5, m_invstddev, [r0+i+NNS*4]
+    cvtdq2ps m2, [buf+i]
+    cvtdq2ps m3, [buf+i+NNS*4]
     mulps    m2, m4
     mulps    m3, m5 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
-    addps    m2, [r0+i*8+16]
-    addps    m3, [r0+i*8+16+NNS*8]
+    addps    m2, [r0+i+NNS*8]
+    addps    m3, [r0+i+NNS*12]
     SIGMOID  m3, m4
     EXP2     m2, m4, m5
     mulps    m3, m2
     addps    m0, m2
     addps    m1, m3
-%assign i i+4
+%assign i i+16
 %endrep
     sub      r0, 48*4*NNS
     movss    m2, [stddev]

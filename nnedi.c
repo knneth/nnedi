@@ -425,13 +425,15 @@ static void munge_scale_weights(nnedi_t *dsp, int16_t *dsti, float *dstf, const 
     // cast input weights to int, scaling them by the largest factor that fits.
     // record that factor so they can be converted back after dotproduct.
     for(int j=0; j<2*dsp->nns; j++) {
-        dstf[2*(j&~3)+(j&3)] = quantize_weights(dsti+48*j, src+48*j, 48);
-        dstf[2*(j&~3)+(j&3)+4] = src[48*2*dsp->nns+j];
+        dstf[j] = quantize_weights(dsti+48*j, src+48*j, 48);
+        dstf[j+2*dsp->nns] = src[48*2*dsp->nns+j];
     }
 
     // weights are defined in terms of exp(), but exp2() is easier to calculate
-    for(int j=0; j<2*dsp->nns; j++)
+    for(int j=0; j<dsp->nns; j++) {
         dstf[j] *= (float)M_LOG2E;
+        dstf[j+2*dsp->nns] *= (float)M_LOG2E;
+    }
 
     if(dsp->cpu) {
         // transpose weights into the order that asm wants
