@@ -33,6 +33,7 @@ pw_32:        times 8 dw 32
 pw_38:        times 8 dw 38
 pw_m6:        times 8 dw -6
 shuf_packdb   db 0,4,8,12,0,0,0,0,0,0,0,0,0,0,0,0
+shuf_packswiz db 0,8,4,12,0,0,0,0,0,0,0,0,0,0,0,0
 ss_48         dd 48.0
 ss_1_3:       dd 0.3333333333
 ss_1_16:      dd 0.0625
@@ -947,6 +948,30 @@ cglobal test_net, 2,2,10
 
 
 
+%macro TEST_NET_HEAD 0
+    add      r0, 0x80
+    movaps   m4, [r0-0x80]
+    movaps   m5, [r0-0x70]
+    cvtdq2ps m0, [r1+0x00]
+    cvtdq2ps m1, [r1+0x10]
+    cvtdq2ps m2, [r1+0x20]
+    cvtdq2ps m3, [r1+0x30]
+    mulps    m0, m4
+    mulps    m1, m4
+    mulps    m2, m4
+    mulps    m3, m4
+    movaps   m_1, [ps_1]
+    movaps   m_abs, [ps_abs]
+    addps    m0, m5
+    addps    m1, m5
+    addps    m2, m5
+    addps    m3, m5
+    SIGMOID  m0, m4
+    SIGMOID  m1, m4
+    SIGMOID  m2, m4
+    SIGMOID  m3, m4
+%endmacro
+
 %macro TEST_NET_TAIL 0
     movaps   m4, m0
     unpcklpd m0, m1 ; 0,1,4,5
@@ -972,72 +997,125 @@ cglobal test_net, 2,2,10
     movd    eax, m0
 %endmacro
 
-%macro TEST_NET_X4_HEAD 0
+%macro TEST_NET_HEAD_YMM 0
     add      r0, 0x80
-    movaps   m4, [r0-0x80]
-    movaps   m5, [r0-0x70]
+    vbroadcastf128 m2, [r0-0x80]
+    vbroadcastf128 m3, [r0-0x70]
     cvtdq2ps m0, [r1+0x00]
-    cvtdq2ps m1, [r1+0x10]
-    cvtdq2ps m2, [r1+0x20]
-    cvtdq2ps m3, [r1+0x30]
-    mulps    m0, m4
-    mulps    m1, m4
-    mulps    m2, m4
-    mulps    m3, m4
-    movaps   m_1,   [ps_1]
-    movaps   m_abs, [ps_abs]
-    addps    m0, m5
-    addps    m1, m5
-    addps    m2, m5
-    addps    m3, m5
-    SIGMOID  m0, m4
-    SIGMOID  m1, m4
-    SIGMOID  m2, m4
-    SIGMOID  m3, m4
+    cvtdq2ps m1, [r1+0x20]
+    mulps    m0, m2
+    mulps    m1, m2
+    mova     m_1, [ps_1]
+    mova     m_abs, [ps_abs]
+    addps    m0, m3
+    addps    m1, m3
+    SIGMOID  m0, m2
+    SIGMOID  m1, m2
+%endmacro
+
+%macro TEST_NET_TAIL_YMM 0
+    unpckhpd m2, m0, m1 ; 2,3,10,11, 6,7,14,15
+    unpcklpd m0, m0, m1 ; 0,1,8,9, 4,5,12,13
+    maxps    m0, m2
+    andps    m0, m_abs
+    vextractf128 xmm2, ymm0, 1
+    vzeroupper
+    INIT_XMM cpuname
+    shufps   m4, m0, m2, q2020 ; 0,8,4,12
+    shufps   m0, m0, m2, q3131 ; 1,9,5,13
+    psubd    m0, m4
+    psrld    m0, 31
+    pshufb   m0, [shuf_packswiz]
+    movd    eax, m0
+%endmacro
+
+%macro YMUL 4
+    %if mmsize==32
+        ; FIXME broadcast is called twice per address; could keep the register around, or duplicate the table entries
+        vbroadcastf128 %4, %3
+        mulps          %1, %2, %4
+    %else
+        mulps          %1, %2, %3
+    %endif
+%endmacro
+
+%macro YADD 4
+    %if mmsize==32
+        vbroadcastf128 %4, %3
+        addps          %1, %2, %4
+    %else
+        addps          %1, %2, %3
+    %endif
+%endmacro
+
+%macro YSHUF 3
+    %if mmsize==32
+        vpermilps %1, %2, %3
+    %else
+        pshufd    %1, %2, %3
+    %endif
 %endmacro
 
 %if ARCH_X86_64
 
 %macro DOTP0 2
-    pshufd  m11, %1, 0x39
-    pshufd  m12, %1, 0x4e
-    pshufd  m13, %1, 0x93
-    mulps    m8, m11, [r0-0x50]
-    mulps    m9, m12, [r0-0x40]
-    mulps   m10, m13, [r0-0x30]
-    mulps    %1, [r0-0x10]
-    mulps   m11, [r0+0x00]
-    mulps   m12, [r0+0x10]
-    mulps   m13, [r0+0x20]
-    addps    %1, [r0+0x70]
-    addps    %2, m8
+    YSHUF   m11,  %1, 0x39
+    YSHUF   m12,  %1, 0x4e
+    YSHUF   m13,  %1, 0x93
+    YMUL     m8, m11, [r0-0x50], m5
+    YMUL     m9, m12, [r0-0x40], m5
+    YMUL    m10, m13, [r0-0x30], m5
+    YMUL     %1,  %1, [r0-0x10], m5
+    YMUL    m11, m11, [r0+0x00], m5
+    YMUL    m12, m12, [r0+0x10], m5
+    YMUL    m13, m13, [r0+0x20], m5
+    YADD     %1,  %1, [r0+0x70], m5
+    addps    %2,  m8
     addps    %1, m11
-    addps    %2, m9
+    addps    %2,  m9
     addps    %1, m12
     addps    %2, m10
     addps    %1, m13
 %endmacro
 
 %macro DOTP1 2
-    pshufd   m8, %2, 0x39
-    pshufd   m9, %2, 0x4e
-    pshufd   m10, %2, 0x93
-    mulps    %2, [r0+0x30]
-    mulps    m8, [r0+0x40]
-    mulps    m9, [r0+0x50]
-    mulps    m10, [r0+0x60]
-    addps    %1, %2
-    addps    %1, m8
-    addps    %1, m9
+    YSHUF    m8,  %2, 0x39
+    YSHUF    m9,  %2, 0x4e
+    YSHUF   m10,  %2, 0x93
+    YMUL     %2,  %2, [r0+0x30], m5
+    YMUL     m8,  m8, [r0+0x40], m5
+    YMUL     m9,  m9, [r0+0x50], m5
+    YMUL    m10, m10, [r0+0x60], m5
+    addps    %1,  %2
+    addps    %1,  m8
+    addps    %1,  m9
     addps    %1, m10
 %endmacro
+
+INIT_YMM avx
+cglobal test_net_x4, 2,2,16
+    TEST_NET_HEAD_YMM
+    vbroadcastf128 m3, [r0-0x60]
+    vbroadcastf128 m4, [r0-0x20]
+    mulps    m2, m3, m0
+    addps    m2, m4
+    DOTP0    m0, m2
+    SIGMOID  m2, m5
+    mulps    m3, m1
+    addps    m3, m4
+    DOTP0    m1, m3
+    SIGMOID  m3, m5
+    DOTP1    m0, m2
+    DOTP1    m1, m3
+    TEST_NET_TAIL_YMM
+    RET
 
 %macro TEST_NET 0
 ; int test_net_x4(const float *weightsf, const int (*dotp)[4])
 cglobal test_net_x4, 2,2,16
 %define m_1   m14
 %define m_abs m15
-    TEST_NET_X4_HEAD
+    TEST_NET_HEAD
     mulps    m4, m0, [r0-0x60]
     mulps    m5, m1, [r0-0x60]
     addps    m4, [r0-0x20]
@@ -1107,7 +1185,7 @@ cglobal test_net_x4, 2,2,8
 %define m_1   m6
 %define m_abs m7
     SUB     rsp, stack_pad
-    TEST_NET_X4_HEAD
+    TEST_NET_HEAD
     movaps   [rsp+0x20], m2
     movaps   [rsp+0x30], m3
     DOTP0    m0, m4, m2, m3, m6, m7

@@ -230,6 +230,7 @@ void nnedi_test_dotproducts_avx (const int16_t *weightsi, int (*dst)[4], const u
 void nnedi_test_dotproducts_xop (const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width);
 int nnedi_test_net_x4_sse2 (const float *weightsf, int (*dotp)[4]);
 int nnedi_test_net_x4_ssse3(const float *weightsf, int (*dotp)[4]);
+int nnedi_test_net_x4_avx  (const float *weightsf, int (*dotp)[4]);
 extern void (*nnedi_scale_nets_tab_sse2[])(const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n);
 extern void (*nnedi_scale_nets_tab_avx[]) (const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n);
 extern void (*nnedi_scale_nets_tab_xop[]) (const int16_t *weights, const uint8_t *pix, intptr_t stride, uint8_t *dst, const uint16_t *offsets, int n);
@@ -298,6 +299,9 @@ nnedi_t *nnedi_config(int nns, int threads)
         dsp->test_dotproduct = nnedi_test_dotproduct_avx;
         dsp->test_dotproducts = nnedi_test_dotproducts_avx;
         dsp->scale_nets = nnedi_scale_nets_tab_avx[dsp->nnsi];
+#if ARCH_X86_64
+        dsp->test_net_x4 = nnedi_test_net_x4_avx;
+#endif
     }
     if(dsp->cpu & NNEDI_CPU_XOP) {
         dsp->test_dotproduct = nnedi_test_dotproduct_xop;
