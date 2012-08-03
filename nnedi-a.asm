@@ -20,21 +20,22 @@
 %include "x86inc.asm"
 
 SECTION_RODATA
-ps_exp_bias: times 4 dd 12582912.0 ; 3<<22
-ps_exp_c0:   times 4 dd 1.00035
-ps_exp_c1:   times 4 dd 0.701277797 ; 1.01173*M_LN2
-ps_exp_c2:   times 4 dd 0.237348593 ; 0.49401*M_LN2*M_LN2
-ps_1:        times 4 dd 1.0
-ps_abs:      times 4 dd 0x7fffffff
-ps_5:        times 4 dd 5.0
-pb_38_m6:    times 8 db 38,-6
-pw_32:       times 8 dw 32
-pw_38:       times 8 dw 38
-pw_m6:       times 8 dw -6
-shuf_packdb  db 0,4,8,12,0,0,0,0,0,0,0,0,0,0,0,0
-ss_48        dd 48.0
-ss_1_3:      dd 0.3333333333
-ss_1_16:     dd 0.0625
+ps_exp_bias0: times 8 dd 12582912.0 ; 3<<22
+ps_exp_bias1: times 8 dd 12583040.0 ; (3<<22)+128
+ps_exp_c0:    times 8 dd 1.00035
+ps_exp_c1:    times 8 dd 0.701277797 ; 1.01173*M_LN2
+ps_exp_c2:    times 8 dd 0.237348593 ; 0.49401*M_LN2*M_LN2
+ps_1:         times 8 dd 1.0
+ps_abs:       times 8 dd 0x7fffffff
+ps_5:         times 4 dd 5.0
+pb_38_m6:     times 8 db 38,-6
+pw_32:        times 8 dw 32
+pw_38:        times 8 dw 38
+pw_m6:        times 8 dw -6
+shuf_packdb   db 0,4,8,12,0,0,0,0,0,0,0,0,0,0,0,0
+ss_48         dd 48.0
+ss_1_3:       dd 0.3333333333
+ss_1_16:      dd 0.0625
 
 SECTION .text
 
@@ -526,7 +527,7 @@ TEST_DOTPS
     mulps    %1, m_exp_c2
     addps    %2, m_exp_c0
     addps    %1, %2
-    paddd    %1, %3
+    mulps    %1, %3
 %endmacro
 
 %macro LOAD_SUM_SQUARE 7 ; dst0, dst1, sum0, sum1, t2, src0, src1
@@ -640,7 +641,6 @@ cglobal scale_net%1
     %define  m_1          m14
     %define  m_abs        m15
     movss    m_invstddev, [invstddev]
-    movaps   m_exp_bias,  [ps_exp_bias]
     movaps   m_exp_c0,    [ps_exp_c0]
     shufps   m_invstddev, m_invstddev, 0
     movaps   m_exp_c1,    [ps_exp_c1]
@@ -656,8 +656,12 @@ cglobal scale_net%1
     %define  m_1          [ps_1]
     %define  m_abs        [ps_abs]
     movss    m_invstddev, [invstddev]
-    movaps   m_exp_bias,  [ps_exp_bias]
     shufps   m_invstddev, m_invstddev, 0
+%endif
+%if cpuflag(avx)
+    movaps   m_exp_bias,  [ps_exp_bias1]
+%else
+    movaps   m_exp_bias,  [ps_exp_bias0]
 %endif
 
     xorps    m0, m0
