@@ -949,25 +949,22 @@ cglobal test_net, 2,2,10
 
 %macro TEST_NET_TAIL 0
     movaps   m4, m0
-    unpcklpd m0, m1
-    unpckhpd m4, m1
+    unpcklpd m0, m1 ; 0,1,4,5
+    unpckhpd m4, m1 ; 2,3,6,7
     maxps    m4, m0
     movaps   m0, m2
-    unpcklpd m2, m3
-    unpckhpd m0, m3
+    unpcklpd m2, m3 ; 8,9,12,13
+    unpckhpd m0, m3 ; 10,11,14,15
     maxps    m2, m0
-    movaps   m0, m4
-    shufps   m4, m2, 0x88
-    shufps   m0, m2, 0xdd
     andps    m0, m_abs
-    andps    m4, m_abs
-%if cpuflag(ssse3)
-    movaps   m2, [shuf_packdb]
-%endif
+    andps    m2, m_abs
+    movaps   m0, m4
+    shufps   m4, m2, q2020 ; 0,4,8,12
+    shufps   m0, m2, q3131 ; 1,5,9,13
     psubd    m0, m4
     psrld    m0, 31
 %if cpuflag(ssse3)
-    pshufb   m0, m2
+    pshufb   m0, [shuf_packdb]
 %else
     packssdw m0, m0
     packuswb m0, m0
@@ -1002,25 +999,22 @@ cglobal test_net, 2,2,10
 %if ARCH_X86_64
 
 %macro DOTP0 2
-    pshufd   m8, %1, 0x39
-    pshufd   m9, %1, 0x4e
-    pshufd  m10, %1, 0x93
-    movaps  m11, m8
-    movaps  m12, m9
-    movaps  m13, m10
-    mulps    m8, [r0-0x50]
-    mulps    m9, [r0-0x40]
-    mulps   m10, [r0-0x30]
+    pshufd  m11, %1, 0x39
+    pshufd  m12, %1, 0x4e
+    pshufd  m13, %1, 0x93
+    mulps    m8, m11, [r0-0x50]
+    mulps    m9, m12, [r0-0x40]
+    mulps   m10, m13, [r0-0x30]
     mulps    %1, [r0-0x10]
     mulps   m11, [r0+0x00]
     mulps   m12, [r0+0x10]
     mulps   m13, [r0+0x20]
-    addps    %2, m8
-    addps    %2, m9
-    addps    %2, m10
     addps    %1, [r0+0x70]
+    addps    %2, m8
     addps    %1, m11
+    addps    %2, m9
     addps    %1, m12
+    addps    %2, m10
     addps    %1, m13
 %endmacro
 
@@ -1044,20 +1038,16 @@ cglobal test_net_x4, 2,2,16
 %define m_1   m14
 %define m_abs m15
     TEST_NET_X4_HEAD
-    movaps   m4, m0
-    movaps   m5, m1
-    mulps    m4, [r0-0x60]
-    mulps    m5, [r0-0x60]
+    mulps    m4, m0, [r0-0x60]
+    mulps    m5, m1, [r0-0x60]
     addps    m4, [r0-0x20]
     addps    m5, [r0-0x20]
     DOTP0    m0, m4
     DOTP0    m1, m5
     SIGMOID  m4, m8
     SIGMOID  m5, m8
-    movaps   m6, m2
-    movaps   m7, m3
-    mulps    m6, [r0-0x60]
-    mulps    m7, [r0-0x60]
+    mulps    m6, m2, [r0-0x60]
+    mulps    m7, m3, [r0-0x60]
     addps    m6, [r0-0x20]
     addps    m7, [r0-0x20]
     DOTP0    m2, m6
@@ -1075,27 +1065,22 @@ cglobal test_net_x4, 2,2,16
 %else ; X86_32
 
 %macro DOTP0 6 ; sum0, sum1, tmps
-    movaps   %2, %1
-    movaps   %3, %1
-    mulps    %2, [r0-0x60]
-    mulps    %3, [r0-0x10]
+    mulps    %2, %1, [r0-0x60]
+    mulps    %3, %1, [r0-0x10]
     pshufd   %4, %1, 0x39
     addps    %2, [r0-0x20]
     addps    %3, [r0+0x70]
-    movaps   %5, [r0+0x00]
-    mulps    %5, %4
+    mulps    %5, %4, [r0+0x00]
     mulps    %4, [r0-0x50]
     pshufd   %6, %1, 0x4e
     addps    %2, %4
     addps    %3, %5
-    movaps   %4, [r0+0x10]
-    mulps    %4, %6
+    mulps    %4, %6, [r0+0x10]
     mulps    %6, [r0-0x40]
     pshufd   %1, %1, 0x93
     addps    %3, %4
     addps    %2, %6
-    movaps   %5, [r0-0x30]
-    mulps    %5, %1
+    mulps    %5, %1, [r0-0x30]
     mulps    %1, [r0+0x20]
     addps    %2, %5
     addps    %1, %3
