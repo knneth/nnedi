@@ -44,7 +44,7 @@ SECTION .text
 %macro HADDPS 2 ; dst, src
     movhlps    %1, %2
     addps      %1, %2
-    pshuflw    %2, %1, 0xe
+    pshuflw    %2, %1, q0032
     addss      %1, %2
 %endmacro
 
@@ -58,8 +58,8 @@ SECTION .text
     unpckhpd   %2, %5
     addps      %2, %4
     movaps     %4, %1
-    shufps     %1, %2, 0x88
-    shufps     %4, %2, 0xdd
+    shufps     %1, %2, q2020
+    shufps     %4, %2, q3131
     addps      %1, %4
 %endmacro
 
@@ -75,8 +75,8 @@ SECTION .text
     punpckhqdq %2, %5
     paddd      %2, %4
     mova       %4, %1
-    shufps     %1, %2, 0x88
-    shufps     %4, %2, 0xdd
+    shufps     %1, %2, q2020
+    shufps     %4, %2, q3131
     paddd      %1, %4
 %endmacro
 
@@ -137,7 +137,7 @@ SECTION .text
         pmaddwd m %+ %%i, m %+ %%j
     %endif
     %if (%%n & 3) == 3
-        pshufd  m %+ %%j, m %+ %%j, 0x39
+        pshufd  m %+ %%j, m %+ %%j, q0321
     %endif
 %endmacro
 
@@ -357,7 +357,7 @@ cglobal test_dotproduct, 4,5,8
         pmaddwd m %+ %%i, m_pix
     %endif
     %if %%n % 6 == 5 && %%n < 18
-        pshufd  m_pix, m_pix, 0x39
+        pshufd  m_pix, m_pix, q0321
     %endif
 %endmacro
 
@@ -615,7 +615,7 @@ cglobal scale_net%1
     movhlps    m3, m1
     paddd      m2, m4
     paddd      m1, m3
-    pshuflw    m3, m1, 14
+    pshuflw    m3, m1, q0032
     paddd      m1, m3
     movd      r3d, m2
     movd      r1d, m1
@@ -903,12 +903,12 @@ cglobal test_net, 2,2,10
     movaps   m_abs, [ps_abs]
     movaps   m1, [r0-0x60]
     SIGMOID  m0, m4
-    pshufd   m5, m0, 0x39
+    pshufd   m5, m0, q0321
     movaps   m2, [r0-0x50]
-    pshufd   m6, m0, 0x4e
+    pshufd   m6, m0, q1032
     mulps    m1, m0
     movaps   m3, [r0-0x40]
-    pshufd   m7, m0, 0x93
+    pshufd   m7, m0, q2103
     mulps    m2, m5
     movaps   m4, [r0-0x30]
     mulps    m3, m6
@@ -922,12 +922,12 @@ cglobal test_net, 2,2,10
     mulps    m6, [r0+0x10]
     SIGMOID  m1, m8
     mulps    m7, [r0+0x20]
-    pshufd   m2, m1, 0x39
+    pshufd   m2, m1, q0321
     addps    m0, [r0+0x70]
     addps    m0, m5
-    pshufd   m3, m1, 0x4e
+    pshufd   m3, m1, q1032
     addps    m6, m7
-    pshufd   m4, m1, 0x93
+    pshufd   m4, m1, q2103
     mulps    m1, [r0+0x30]
     addps    m0, m6
     mulps    m2, [r0+0x40]
@@ -939,7 +939,7 @@ cglobal test_net, 2,2,10
     addps    m0, m2
     movhlps  m1, m0
     maxps    m0, m1
-    pshuflw  m1, m0, 0xe
+    pshuflw  m1, m0, q0032
     xor     eax, eax
     comiss   m0, m1
     seta     al
@@ -1059,9 +1059,9 @@ cglobal test_net, 2,2,10
 %if ARCH_X86_64
 
 %macro DOTP0 2
-    YSHUF   m11,  %1, 0x39
-    YSHUF   m12,  %1, 0x4e
-    YSHUF   m13,  %1, 0x93
+    YSHUF   m11,  %1, q0321
+    YSHUF   m12,  %1, q1032
+    YSHUF   m13,  %1, q2103
     YMUL     m8, m11, [r0-0x50], m5
     YMUL     m9, m12, [r0-0x40], m5
     YMUL    m10, m13, [r0-0x30], m5
@@ -1079,9 +1079,9 @@ cglobal test_net, 2,2,10
 %endmacro
 
 %macro DOTP1 2
-    YSHUF    m8,  %2, 0x39
-    YSHUF    m9,  %2, 0x4e
-    YSHUF   m10,  %2, 0x93
+    YSHUF    m8,  %2, q0321
+    YSHUF    m9,  %2, q1032
+    YSHUF   m10,  %2, q2103
     YMUL     %2,  %2, [r0+0x30], m5
     YMUL     m8,  m8, [r0+0x40], m5
     YMUL     m9,  m9, [r0+0x50], m5
@@ -1145,17 +1145,17 @@ cglobal test_net_x4, 2,2,16
 %macro DOTP0 6 ; sum0, sum1, tmps
     mulps    %2, %1, [r0-0x60]
     mulps    %3, %1, [r0-0x10]
-    pshufd   %4, %1, 0x39
+    pshufd   %4, %1, q0321
     addps    %2, [r0-0x20]
     addps    %3, [r0+0x70]
     mulps    %5, %4, [r0+0x00]
     mulps    %4, [r0-0x50]
-    pshufd   %6, %1, 0x4e
+    pshufd   %6, %1, q1032
     addps    %2, %4
     addps    %3, %5
     mulps    %4, %6, [r0+0x10]
     mulps    %6, [r0-0x40]
-    pshufd   %1, %1, 0x93
+    pshufd   %1, %1, q2103
     addps    %3, %4
     addps    %2, %6
     mulps    %5, %1, [r0-0x30]
@@ -1165,13 +1165,13 @@ cglobal test_net_x4, 2,2,16
 %endmacro
 
 %macro DOTP1 3 ; sum, in, tmp
-    pshufd   %3, %2, 0x39
+    pshufd   %3, %2, q0321
     mulps    %3, [r0+0x40]
     addps    %1, %3
-    pshufd   %3, %2, 0x4e
+    pshufd   %3, %2, q1032
     mulps    %3, [r0+0x50]
     addps    %1, %3
-    pshufd   %3, %2, 0x93
+    pshufd   %3, %2, q2103
     mulps    %3, [r0+0x60]
     addps    %1, %3
     mulps    %2, [r0+0x30]
