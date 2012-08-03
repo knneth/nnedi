@@ -29,6 +29,7 @@
 #include <libavutil/avutil.h>
 #include "nnedi.h"
 #include "tables.h"
+#include "cpu.h"
 
 #define MAX_NNS 256
 
@@ -219,7 +220,7 @@ static void transpose_c(uint8_t *dst, uint8_t *src, int width, int height, int d
 static void munge_test_weights(nnedi_t *dsp, int16_t *dsti, int16_t *dsti_transpose, float *dstf, const float *src);
 static void munge_scale_weights(nnedi_t *dsp, int16_t *dsti, float *dstf, const float *src);
 
-#ifdef ARCH_X86
+#if ARCH_X86
 #include "nnedi_asm.c"
 void nnedi_test_dotproduct_sse2(const int16_t *weightsi, int *dst, const uint8_t *pix, intptr_t stride);
 void nnedi_test_dotproducts_sse2(const int16_t *weightsi, int (*dst)[4], const uint8_t *pix, intptr_t stride, int width);
@@ -254,9 +255,9 @@ struct nnedi_t {
 nnedi_t *nnedi_config(int nns, int threads)
 {
     nnedi_t *dsp = malloc(sizeof(nnedi_t));
-    dsp->cpu = 1;
+    dsp->cpu = nnedi_cpu_detect();
     if(threads <= 0)
-        threads = sysconf(_SC_NPROCESSORS_ONLN);
+        threads = nnedi_cpu_num_processors();
     dsp->threads = threads;
     if(getenv("noasm"))
         dsp->cpu = 0;
@@ -272,8 +273,8 @@ nnedi_t *nnedi_config(int nns, int threads)
     dsp->bicubic = bicubic_c;
     dsp->transpose = transpose_c;
 
-#ifdef ARCH_X86
-    if(dsp->cpu) {
+#if ARCH_X86
+    if(dsp->cpu & NNEDI_CPU_SSE2) {
         dsp->test_dotproduct = nnedi_test_dotproduct_sse2;
         dsp->test_dotproducts = nnedi_test_dotproducts_sse2;
         dsp->scale_nets = nnedi_scale_nets_tab_sse2[dsp->nnsi];
@@ -283,14 +284,11 @@ nnedi_t *nnedi_config(int nns, int threads)
         dsp->bicubic = nnedi_bicubic_sse2;
         dsp->transpose = transpose_sse2;
     }
-
-    if(dsp->cpu) {
+    if(dsp->cpu & NNEDI_CPU_SSSE3) {
         dsp->test_net_x4 = nnedi_test_net_x4_ssse3;
         dsp->merge_test_neighbors = merge_test_neighbors_ssse3;
         dsp->bicubic = nnedi_bicubic_ssse3;
     }
-#else
-    dsp->cpu = 0;
 #endif
 
     munge_test_weights(dsp, dsp->test_weights_i, dsp->test_weights_i_transpose, dsp->test_weights_f, nnedi_test_weights);
