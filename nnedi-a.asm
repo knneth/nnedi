@@ -574,6 +574,21 @@ TEST_DOTPS
 %%.noclip:
 %endmacro
 
+%macro SIGMOIDS_AND_EXPS 1
+    mulps    m4, m_invstddev, [r0+%1]
+    mulps    m5, m_invstddev, [r0+%1+NNS*4]
+    cvtdq2ps m2, [buf+%1]
+    cvtdq2ps m3, [buf+%1+NNS*4]
+    mulps    m2, m4
+    mulps    m3, m5 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
+    addps    m2, [r0+%1+NNS*8]
+    addps    m3, [r0+%1+NNS*12]
+    SIGMOID  m3, m4
+    EXP2     m2, m4, m5, xmm6
+    mulps    m3, m2
+    addps    m0, m2
+    addps    m1, m3
+%endmacro
 
 %macro SCALE_NET 1 ; nns
 ; int scale_net(struct { int16_t i[48*2*NNS]; float f[4*NNS]; } *weights, const uint8_t *pix, intptr_t stride)
@@ -683,23 +698,21 @@ cglobal scale_net%1
 
     xorps    m0, m0
     xorps    m1, m1
-%assign i 0
+%if NNS >= 64
+    mov      r3, NNS*4-mmsize
+.sigmoids:
+    SIGMOIDS_AND_EXPS r3
+    SIGMOIDS_AND_EXPS r3-mmsize
+    sub      r3, 2*mmsize
+    jge .sigmoids
+%else
+    %assign i 0
 %rep NNS*4/mmsize
-    mulps    m4, m_invstddev, [r0+i]
-    mulps    m5, m_invstddev, [r0+i+NNS*4]
-    cvtdq2ps m2, [buf+i]
-    cvtdq2ps m3, [buf+i+NNS*4]
-    mulps    m2, m4
-    mulps    m3, m5 ; could go into the "+1.0" in the sigmoid, for reduced dependency chain
-    addps    m2, [r0+i+NNS*8]
-    addps    m3, [r0+i+NNS*12]
-    SIGMOID  m3, m4
-    EXP2     m2, m4, m5, xmm6
-    mulps    m3, m2
-    addps    m0, m2
-    addps    m1, m3
-%assign i i+mmsize
+    SIGMOIDS_AND_EXPS i
+    %assign i i+mmsize
 %endrep
+%endif
+
 %if cpuflag(avx)
     vextractf128 xmm2, ymm0, 1
     vextractf128 xmm3, ymm1, 1
