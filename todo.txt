@@ -1,0 +1,5 @@
+nns=4 overflows 32KB L1d cache. it could be about 2x faster on penryn if I reordered it for better locality, though sandybridge doesn't seem to have as much of a discontinuity in speeds even with the same cache size. likewise, nns=3 overflows bulldozer's 16KB L1d.
+crash on tiny resolutions?
+clip output to min/max of nearby input pixels to reduce ringing? though sometimes the overshoot is accurate, especially for the center of thin lines.
+import net weights from newer versions of nnedi3.
+higher colordepth
