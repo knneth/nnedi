@@ -21,7 +21,7 @@
 #define NNEDI_CPU_SLOW_CTZ        0x0100000  /* BSR/BSF x86 instructions are really slow on some CPUs */
 #define NNEDI_CPU_SLOW_ATOM       0x0200000  /* The Atom just sucks */
 #define NNEDI_CPU_AVX             0x0400000  /* AVX support: requires OS support even if YMM registers
-                                             * aren't used. */
+* aren't used. */
 #define NNEDI_CPU_XOP             0x0800000  /* AMD XOP */
 #define NNEDI_CPU_FMA4            0x1000000  /* AMD FMA4 */
 #define NNEDI_CPU_AVX2            0x2000000  /* AVX2 */
